@@ -12,7 +12,7 @@ from tasks.models import Task, TimeLog
 from .services import GoogleCalendarService, add_event_extended_properties
 from core.exceptions import GoogleAuthError, GoogleNetworkError, GoogleRefreshTokenError
 from .models import UserCalendar
-from .serializers import EventFromTaskSerializer, GoogleCalendarEventCreateSerializer, GoogleCalendarEventDeleteSerializer, GoogleCalendarEventSerializer, GoogleCalendarEventUpdateSerializer, UserCalendarSerializer
+from .serializers import EventFromTaskDeleteSerializer, EventFromTaskSerializer, GoogleCalendarEventCreateSerializer, GoogleCalendarEventDeleteSerializer, GoogleCalendarEventSerializer, GoogleCalendarEventUpdateSerializer, UserCalendarSerializer
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
 
@@ -53,12 +53,7 @@ class UserCalendarEventsApi(APIView):
         try:
             events = calendar_service.get_all_events(request.user, time_min, time_max)
             return Response(events, status=status.HTTP_200_OK)
-        # except GoogleRefreshTokenError as e:
-        #     raise e
-        # except GoogleNetworkError as e:
-        #     raise e
-        # except Exception as e:
-        #     raise GoogleAuthError(detail=str(e))
+
         except Exception as e:
             raise e
         
@@ -161,7 +156,9 @@ class UserCalendarEventsApi(APIView):
         operation_description="Удалить событие из календаря пользователя",
         request_body=GoogleCalendarEventDeleteSerializer,
         responses={
-            204: openapi.Response('Событие успешно удалено'),
+            204: openapi.Response('Событие успешно удалено', examples={
+                'application/json': {"success": "Событие успешно удалено", "timelog_deleted": True}
+            }),
             400: openapi.Response('Ошибка в параметрах'),
         }
     )
@@ -181,8 +178,20 @@ class UserCalendarEventsApi(APIView):
 
         calendar_service = GoogleCalendarService()
         calendar_service.delete_event(request.user, google_calendar_id, event_id)
+
+        # Если событие было создано из задачи — удаляем timelog
+        timelog_deleted = False
+        deleted_count, _ = TimeLog.objects.filter(
+            task__user=request.user,
+            google_event_id=event_id
+        ).delete()
+        if deleted_count:
+            timelog_deleted = True
         
-        return Response({"success": "Событие успешно удалено"}, status=status.HTTP_204_NO_CONTENT)
+        return Response(
+            {"success": "Событие успешно удалено", "timelog_deleted": timelog_deleted},
+            status=status.HTTP_204_NO_CONTENT
+        )
 
 
 class UserCalendarListApi(APIView):
@@ -244,15 +253,15 @@ class ToggleUserCalendarSelectApi(APIView):
         ],
         responses={
             200: openapi.Response('Календарь успешно переключен', examples={
-                'application/json': {"success": "Календарь успешно переключен"}
+                'application/json': {"success": "Календарь успешно переключен", "selected": True}
             })
         }
     )
     def post(self, request, *args, **kwargs):
         google_calendar_id = request.data.get('google_calendar_id')
         calendar_service = GoogleCalendarService()
-        calendar_service.toggle_calendar_select(request.user, google_calendar_id)
-        return Response({"success": "Календарь успешно переключен"}, status=status.HTTP_200_OK)
+        selected = calendar_service.toggle_calendar_select(request.user, google_calendar_id)
+        return Response({"success": "Календарь успешно переключен", "selected": selected}, status=status.HTTP_200_OK)
     
     
 class EventFromTaskApi(APIView):
@@ -324,6 +333,52 @@ class EventFromTaskApi(APIView):
         print(timelog)
     
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+    @swagger_auto_schema(
+        operation_description="Удалить событие и timelog на основе задачи",
+        request_body=EventFromTaskDeleteSerializer,
+        responses={
+            204: openapi.Response('Событие и timelog успешно удалены', examples={
+                'application/json': {"success": "Событие и timelog успешно удалены", "timelog_deleted": True}
+            }),
+            400: openapi.Response('Ошибка в параметрах'),
+            404: openapi.Response('Задача не найдена'),
+            500: openapi.Response('Ошибка сервера')
+        }
+    )
+    def delete(self, request, *args, **kwargs):
+        serializer = EventFromTaskDeleteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        validated = serializer.validated_data
+
+        task = get_object_or_404(Task, id=validated['task_id'], user=request.user)
+        user_calendar = get_object_or_404(UserCalendar, id=validated['user_calendar_id'], user=request.user)
+
+        try:
+            gcal_service = GoogleCalendarService()
+            gcal_service.delete_event(
+                user=request.user,
+                google_calendar_id=user_calendar.google_calendar_id,
+                event_id=validated["event_id"]
+            )
+        except Exception as e:
+            return Response(
+                {"error": f"Не удалось удалить событие: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        deleted_count, _ = TimeLog.objects.filter(
+            task=task,
+            google_event_id=validated["event_id"]
+        ).delete()
+
+        return Response(
+            {
+                "success": "Событие и timelog успешно удалены",
+                "timelog_deleted": bool(deleted_count)
+            },
+            status=status.HTTP_204_NO_CONTENT
+        )
     
     # @swagger_auto_schema(
     #     operation_description="Обновить событие и timelog",
