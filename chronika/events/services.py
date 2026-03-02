@@ -94,6 +94,7 @@ class GoogleCalendarService:
                 raise CalendarSyncError("Нельзя отключить основной календарь")
             calendar.selected = not calendar.selected
             calendar.save()
+            return calendar.selected
         except UserCalendar.DoesNotExist:
             raise CalendarSyncError(f"Календарь {google_calendar_id} не найден")
 

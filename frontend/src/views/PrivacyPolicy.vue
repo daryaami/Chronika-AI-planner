@@ -130,7 +130,7 @@
     <h2>Contact Information</h2>
 
     <p>If&nbsp;you have any questions about this Privacy Policy or&nbsp;your data, you can contact us&nbsp;at:</p>
-    <p>Email: <a href="mailto:daryaami10@gmail.com">daryaami10@gmail.com</a></p>
+    <p>Email: <a href="mailto:support@chronikaai.com">support@chronikaai.com</a></p>
 
     <hr>
 

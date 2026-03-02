@@ -1,6 +1,7 @@
 import logging
 from django.conf import settings
 import jwt
+import re
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -18,6 +19,8 @@ from users.services import AuthService
 from .serializers import UserSerializer
 
 logger = logging.getLogger(__name__)
+
+IANA_TIMEZONE_RE = re.compile(r"^[A-Za-z]+(?:[._-][A-Za-z0-9]+)*(?:/[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*)+$")
 
 
 class LogoutView(APIView):
@@ -101,13 +104,14 @@ class ProfileView(APIView):
         return Response(user.data, status=status.HTTP_200_OK)
 
     @swagger_auto_schema(
-        operation_description="Обновление имени пользователя",
+        operation_description="Обновление имени пользователя и timezone",
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
             properties={
-                'name': openapi.Schema(type=openapi.TYPE_STRING, description='Новое имя пользователя')
+                'name': openapi.Schema(type=openapi.TYPE_STRING, description='Новое имя пользователя'),
+                'time_zone': openapi.Schema(type=openapi.TYPE_STRING, description='Новый timezone пользователя')
             },
-            required=['name']
+            required=[]
         ),
         responses={
             200: openapi.Response(description="Имя успешно обновлено", schema=UserSerializer),
@@ -116,23 +120,40 @@ class ProfileView(APIView):
         }
     )
     def patch(self, request):
-        """Обновляет имя пользователя"""
-        name = request.data.get('name')
-        if not name:
+        """Обновляет имя пользователя и timezone"""
+        name = request.data.get('name', None)
+        time_zone = request.data.get('time_zone', None)
+
+        if name is None and time_zone is None:
             return Response(
-                {"error": "Поле 'name' обязательно для заполнения"},
+                {"error": "Нужно передать хотя бы одно из полей: 'name' или 'time_zone'"},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
-        if not isinstance(name, str) or len(name.strip()) == 0:
-            return Response(
-                {"error": "Имя не может быть пустым"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        request.user.name = name.strip()
+
+        if name is not None:
+            if not isinstance(name, str) or len(name.strip()) == 0:
+                return Response(
+                    {"error": "Имя не может быть пустым"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            request.user.name = name.strip()
+
+        if time_zone is not None:
+            if not isinstance(time_zone, str) or len(time_zone.strip()) == 0:
+                return Response(
+                    {"error": "Timezone не может быть пустым"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            normalized_time_zone = time_zone.strip()
+            if not IANA_TIMEZONE_RE.match(normalized_time_zone):
+                return Response(
+                    {"error": "Timezone должен быть в формате IANA, например 'Europe/Moscow'"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            request.user.time_zone = normalized_time_zone
+
         request.user.save()
-        logger.info("User %s updated their name to: %s", request.user.email, name)
+        logger.info("User %s updated profile: name=%s, time_zone=%s", request.user.email, name, time_zone)
         
         user_serializer = UserSerializer(request.user)
         return Response(user_serializer.data, status=status.HTTP_200_OK)

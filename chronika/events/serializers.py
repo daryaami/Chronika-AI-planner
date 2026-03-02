@@ -113,6 +113,12 @@ class EventFromTaskSerializer(serializers.Serializer):
             raise serializers.ValidationError("Дата окончания должна быть позже даты начала")
         return data
 
+
+class EventFromTaskDeleteSerializer(serializers.Serializer):
+    task_id = serializers.IntegerField(required=True)
+    user_calendar_id = serializers.IntegerField(required=True, help_text="ID календаря из базы данных (UserCalendar.id)")
+    event_id = serializers.CharField(required=True)
+
     
 # class EventFromTaskUpdateSerializer(EventFromTaskSerializer):
 #     event_id = serializers.IntegerField(required=True)
