@@ -3,16 +3,7 @@ import {ref} from "vue";
 
 import {useAuthStore} from "./auth";
 import {BASE_API_URL} from "@/config";
-
-interface ProfileData {
-  id: number;
-  email: string;
-  google_id: string;
-  name: string;
-  picture: string;
-  joined_on: string;
-  is_active: boolean;
-}
+import type { ProfileDataType } from "@/types/profile";
 
 export const useProfileStore = defineStore("userData", () => {
   const profileData = ref<ProfileData | null>(null)
@@ -33,7 +24,7 @@ export const useProfileStore = defineStore("userData", () => {
     profileData.value = await response.json() as ProfileData
   }
 
-  const getProfileData = async (): Promise<ProfileData | null> => {
+  const getProfileData = async (): Promise<ProfileDataType | null> => {
     if (!profileData.value) {
       await fetchProfileData();
     }

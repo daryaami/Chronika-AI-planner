@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import {computed} from "vue";
+import {RouterLink} from "vue-router";
 
 const props = withDefaults(defineProps<{
   tag?: 'button' | 'a',
+  to?: string,
   text: string,
   leftIcon?: string,
   rightIcon?: string,
@@ -10,6 +12,11 @@ const props = withDefaults(defineProps<{
   type?: 'error',
 }>(), {
   tag: 'button'
+})
+
+const component = computed(() => {
+  if (props.to) return RouterLink
+  return props.tag as string
 })
 
 const computedIconColor = computed(() => {
@@ -20,7 +27,9 @@ const computedIconColor = computed(() => {
 </script>
 
 <template>
-  <component :is="tag" :class="`nav-link${type ? ` nav-link--${type}` : ''}`">
+  <component :is="component"
+             :to="to"
+             :class="`nav-link${type ? ` nav-link--${type}` : ''}`">
     <svg v-if="leftIcon" width="18" height="18"
          :style="computedIconColor"
 

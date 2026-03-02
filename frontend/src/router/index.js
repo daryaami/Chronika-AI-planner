@@ -49,7 +49,15 @@ const router = createRouter({
         layout: 'text',
         metaTitle: 'Privacy Policy'
       },
-    }
+    },
+    {
+      path: '/profile',
+      component: () => import("../views/ProfileView.vue"),
+      meta: {
+        layout: 'default',
+        metaTitle: 'Profile'
+      },
+    },
   ],
 })
 

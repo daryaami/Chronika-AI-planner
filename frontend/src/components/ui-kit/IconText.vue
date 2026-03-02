@@ -8,6 +8,7 @@ withDefaults(defineProps<{
   leftIcon?: string,
   text?: string,
   rightIcon?: string
+  type?: 'accent' | null,
 }>(), {
   size: 'm',
   tag: 'button',
@@ -18,7 +19,7 @@ withDefaults(defineProps<{
 <template>
   <component :is="tag"
              class="icon-text"
-             :class="`icon-text--${size} icon-text--${weight}`">
+             :class="`icon-text--${size} icon-text--${weight} ${type ? `icon-text--${type}` : ''}`">
     <svg v-if="leftIcon" width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
       <use :href="`#${leftIcon}`"></use>
     </svg>
@@ -67,9 +68,23 @@ withDefaults(defineProps<{
     }
   }
 
+  &--l {
+    font: var(--bold-18);
+
+    & svg {
+      display: block;
+      width: 16px;
+      height: 16px;
+    }
+  }
+
   &--bold {
     font-weight: 400;
     gap: 6px;
+  }
+
+  &--accent {
+    color: var(--text-primary-hover);
   }
 }
 </style>

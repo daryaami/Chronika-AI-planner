@@ -3,3 +3,8 @@ declare module "*.svg" {
   const component: DefineComponent<{}, {}, any>;
   export default component;
 }
+
+declare module "*.svg?url" {
+  const src: string;
+  export default src;
+}

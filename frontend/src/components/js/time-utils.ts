@@ -6,6 +6,7 @@ const getEndOfMonth = (date: Date): Date => {
   return new Date(date.getFullYear(), date.getMonth() + 1, 0);
 }
 
+// Возвращает массив дат начала каждого месяца в формате "YYYY-MM-DD" (например: "2026-02-06")
 const getMonthStartDates = (start: Date, end: Date): string[] => {
   const result: string[] = [];
 
@@ -19,6 +20,7 @@ const getMonthStartDates = (start: Date, end: Date): string[] => {
   return result;
 }
 
+// Возвращает дату в формате "YYYY-MM-DD" (например: "2026-02-06")
 const formatDate = (date: Date): string => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -47,6 +49,9 @@ const addMinutes = (date: Date, minutes: number): Date => {
   return copy
 }
 
+// Возвращает дату в формате:
+// - для дат текущей недели: "ddd, HH:mm" (например: "Thu, 14:30")
+// - для остальных дат: "d MMMM" (например: "8 February")
 const formatDueDate = (date: Date): string => {
   const now = new Date()
 
@@ -74,6 +79,7 @@ const formatDueDate = (date: Date): string => {
   }
 }
 
+// Возвращает день недели и дату в формате "ddd, d MMM" (например: "Thu, 8 Aug")
 const toWeekDayAndDate = (date: Date): string => {
   // Thu, 8 Aug
 
@@ -81,6 +87,14 @@ const toWeekDayAndDate = (date: Date): string => {
     weekday: "short",
     day: "numeric",
     month: "short",
+  }).format(date);
+}
+
+// Возвращает месяц и год в формате "MMM YYYY" (например: "Nov 2023")
+const getMonthAndYear = (date: Date): string => {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    year: "numeric"
   }).format(date);
 }
 
@@ -93,5 +107,6 @@ export {
   getCurrentWeekMonday,
   addMinutes,
   formatDueDate,
-  toWeekDayAndDate
+  toWeekDayAndDate,
+  getMonthAndYear
 };
