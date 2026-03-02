@@ -4,10 +4,10 @@ version: "3.9"
 services:
   backend:
     build:
-      context: ./timeflow
-    container_name: timeflowapi-backend
+      context: ./chronika
+    container_name: chronikaapi-backend
     env_file:
-      - ./timeflow/.env.production
+      - ./chronika/.env.production
     environment:
       - DJANGO_ENV=production
     expose:
@@ -18,7 +18,7 @@ services:
   frontend:
     build:
       context: ./frontend
-    container_name: timeflowapi-frontend
+    container_name: chronikaapi-frontend
     volumes:
       - frontend_dist:/app/dist_volume
     command: sh -c "cp -r /app/dist/. /app/dist_volume/ && echo 'Frontend files copied to volume' && sleep infinity"
@@ -28,7 +28,7 @@ services:
 
   nginx:
     image: nginx:stable-alpine
-    container_name: timeflowapi-nginx
+    container_name: chronikaapi-nginx
     ports:
       - "80:80"
     volumes:

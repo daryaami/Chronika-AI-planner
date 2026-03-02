@@ -120,12 +120,12 @@ class UserCalendarEventsApi(APIView):
             return Response({"error": f"Не удалось обновить событие в Google Calendar: {str(e)}"},
                             status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # Проверяем, является ли событие задачей timeflow
+        # Проверяем, является ли событие задачей chronika
         extProps = event.get("extendedProperties", {}).get("private", {})
         print(extProps)
-        if bool(extProps.get('timeflow__touched', False)):
-            if int(extProps.get('timeflow__object-type', 0)) == 1:
-                task_id = extProps.get('timeflow__task-id', 0)
+        if bool(extProps.get('chronika__touched', False)):
+            if int(extProps.get('chronika__object-type', 0)) == 1:
+                task_id = extProps.get('chronika__task-id', 0)
                 google_event_id = event.get('id')
 
                 try:
@@ -366,10 +366,10 @@ class EventFromTaskApi(APIView):
 
     #     extProps = validated.get("extendedProperties", {}).get("private", {})
 
-    #     if "timeflow__touched" in extProps and extProps["timeflow__touched"] == True and extProps["timeflow__object-type"] == 1:
+    #     if "chronika__touched" in extProps and extProps["chronika__touched"] == True and extProps["chronika__object-type"] == 1:
 
-    #         task = get_object_or_404(Task, id=extProps["timeflow__task-id"], user=request.user)
-    #         timelog = get_object_or_404(TimeLog, id=extProps["timeflow__connected-timelog-id"], task=task)
+    #         task = get_object_or_404(Task, id=extProps["chronika__task-id"], user=request.user)
+    #         timelog = get_object_or_404(TimeLog, id=extProps["chronika__connected-timelog-id"], task=task)
 
     #         assert timelog.google_event_id == validated["event_id"], "event_id не совпадает с timelog.google_event_id"
             

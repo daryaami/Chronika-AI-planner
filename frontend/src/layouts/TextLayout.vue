@@ -9,8 +9,8 @@ const route = useRoute()
   <div class="text-page-wrapper">
     <header class="text-header">
       <div class="text-header__logo">
-        <img :src="logoIconURL" alt="TimeFlow" width="34" height="34">
-        <span>TimeFlow</span>
+        <img :src="logoIconURL" alt="Chronika" width="34" height="34">
+        <span>Chronika</span>
       </div>
 
       <span class="text-header__title">{{ route.meta.metaTitle }}</span>

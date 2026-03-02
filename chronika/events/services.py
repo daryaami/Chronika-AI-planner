@@ -189,22 +189,22 @@ class GoogleCalendarService:
 def add_event_extended_properties(event: dict, task_id: int | None = None, timelog_id: int | None = None):
     """
     Добавляет расширенные свойства событию.
-    "timeflow__object-type": 1 - задача, 0 - событие 
+    "chronika__object-type": 1 - задача, 0 - событие 
     """
     if task_id: #and timelog_id:
         event['extendedProperties'] = {
             'private': {
-                "timeflow__touched": True,
-                "timeflow__object-type": 1,
-                "timeflow__task-id": task_id,
-                # "timeflow__connected-timelog-id": timelog_id,
+                "chronika__touched": True,
+                "chronika__object-type": 1,
+                "chronika__task-id": task_id,
+                # "chronika__connected-timelog-id": timelog_id,
             }
     }
     else:
         event['extendedProperties'] = {
             'private': {
-                "timeflow__touched": True,
-                "timeflow__object-type": 0,
+                "chronika__touched": True,
+                "chronika__object-type": 0,
             }
         }
 
@@ -246,10 +246,10 @@ def add_event_extended_properties(event: dict, task_id: int | None = None, timel
 #     "calendar": "73ar9fhu8lu8isn2hqvvo199h8@group.calendar.google.com",
     # "extendedProperties": {
         # "private": {
-        #     "timeflow__touched": true,
-        #     "timeflow__object-type": 1,
-        #     "timeflow__task-id": "42",
-        #     "timeflow__connected-timelog-id": "42",
+        #     "chronika__touched": true,
+        #     "chronika__object-type": 1,
+        #     "chronika__task-id": "42",
+        #     "chronika__connected-timelog-id": "42",
         # },
     
     # }

@@ -1,5 +1,5 @@
 """
-URL configuration for timeflow project.
+URL configuration for chronika project.
 
 The `urlpatterns` list routes URLs to views. For more information please see:
     https://docs.djangoproject.com/en/5.1/topics/http/urls/

@@ -14,7 +14,7 @@ app.use(createPinia())
 app.use(router)
 
 router.afterEach((to) => {
-  document.title = to.meta.metaTitle? `TimeFlow | ${to.meta.metaTitle}` : 'TimeFlow';
+  document.title = to.meta.metaTitle? `Chronika | ${to.meta.metaTitle}` : 'Chronika';
 });
 
 app.mount('#app')

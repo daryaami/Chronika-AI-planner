@@ -1,5 +1,5 @@
 """
-WSGI config for timeflow project.
+WSGI config for chronika project.
 
 It exposes the WSGI callable as a module-level variable named ``application``.
 
@@ -11,6 +11,6 @@ import os
 
 from django.core.wsgi import get_wsgi_application
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'timeflow.settings')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'chronika.settings')
 
 application = get_wsgi_application()

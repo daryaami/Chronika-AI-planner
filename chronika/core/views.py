@@ -20,5 +20,5 @@ class HealthCheckView(APIView):
         """
         return Response({
             "status": "healthy",
-            "service": "timeflow-api"
+            "service": "chronika-api"
         }, status=status.HTTP_200_OK)

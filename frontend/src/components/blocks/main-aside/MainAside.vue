@@ -7,8 +7,8 @@ import logoIconURL from "@/assets/img/logo.svg?url";
 <template>
   <div class="main-aside">
     <div class="main-aside__title-wrapper">
-      <img :src="logoIconURL" alt="TimeFlow" width="34" height="34">
-      <h1 class="main-aside__title">TimeFlow</h1>
+      <img :src="logoIconURL" alt="Chronika" width="34" height="34">
+      <h1 class="main-aside__title">Chronika</h1>
     </div>
     <AsideCalendar />
     <MainMenu />

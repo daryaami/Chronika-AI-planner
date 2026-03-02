@@ -29,11 +29,11 @@ docker-compose --version
 
 ### 1. Подготовка переменных окружения
 
-Создайте файл `timeflow/.env.production` с необходимыми переменными:
+Создайте файл `chronika/.env.production` с необходимыми переменными:
 
 ```bash
 # Перейдите в директорию проекта
-cd D:\Documents\projects\timeflowAPI
+cd D:\Documents\projects\chronikaAPI
 
 # Создайте файл .env.production (если его нет)
 ```
@@ -51,9 +51,9 @@ DATABASE_URL=sqlite:///db.sqlite3
 ### 2. Структура проекта
 
 ```
-timeflowAPI/
+chronikaAPI/
 ├── docker-compose.yml          # Конфигурация всех сервисов
-├── timeflow/
+├── chronika/
 │   ├── Dockerfile              # Backend образ
 │   ├── .env.production         # Переменные окружения
 │   └── requirements.txt        # Python зависимости
@@ -112,9 +112,9 @@ docker ps
 **Ожидаемый результат:**
 ```
 NAME                    STATUS          PORTS
-timeflowapi-backend     Up (healthy)    
-timeflowapi-frontend    Up              
-timeflowapi-nginx       Up              0.0.0.0:80->80/tcp
+chronikaapi-backend     Up (healthy)    
+chronikaapi-frontend    Up              
+chronikaapi-nginx       Up              0.0.0.0:80->80/tcp
 ```
 
 ### Проверка работоспособности
@@ -181,7 +181,7 @@ docker-compose up -d --force-recreate nginx
 ### 📝 Обновление переменных окружения
 
 ```bash
-# 1. Отредактируйте timeflow/.env.production
+# 1. Отредактируйте chronika/.env.production
 # 2. Перезапустите backend
 docker-compose restart backend
 ```
@@ -212,7 +212,7 @@ docker-compose logs -f --timestamps backend
 
 ```bash
 # Вход в backend контейнер
-docker exec -it timeflowapi-backend bash
+docker exec -it chronikaapi-backend bash
 
 # Внутри контейнера можно выполнить:
 python manage.py shell
@@ -220,30 +220,30 @@ python manage.py migrate
 python manage.py createsuperuser
 
 # Вход в frontend контейнер
-docker exec -it timeflowapi-frontend sh
+docker exec -it chronikaapi-frontend sh
 
 # Вход в nginx контейнер
-docker exec -it timeflowapi-nginx sh
+docker exec -it chronikaapi-nginx sh
 ```
 
 ### Проверка сетевого подключения
 
 ```bash
 # Проверка сети Docker
-docker network inspect timeflowapi_appnet
+docker network inspect chronikaapi_appnet
 
 # Проверка подключения backend из nginx
-docker exec timeflowapi-nginx wget -O- http://backend:8000/api/health/
+docker exec chronikaapi-nginx wget -O- http://backend:8000/api/health/
 ```
 
 ### Проверка файлов в контейнере
 
 ```bash
 # Просмотр файлов frontend
-docker exec timeflowapi-frontend ls -la /app/dist
+docker exec chronikaapi-frontend ls -la /app/dist
 
 # Просмотр файлов backend
-docker exec timeflowapi-backend ls -la /app
+docker exec chronikaapi-backend ls -la /app
 ```
 
 ---
@@ -324,10 +324,10 @@ docker-compose restart
 ```bash
 # Сборка с тегами версий
 docker-compose build --no-cache
-docker tag timeflowapi-backend:latest timeflowapi-backend:v1.0.0
+docker tag chronikaapi-backend:latest chronikaapi-backend:v1.0.0
 
 # Сохранение образов
-docker save timeflowapi-backend:latest | gzip > backend.tar.gz
+docker save chronikaapi-backend:latest | gzip > backend.tar.gz
 
 # Загрузка образов
 docker load < backend.tar.gz
@@ -379,13 +379,13 @@ docker-compose restart nginx
 
 ```bash
 # 1. Проверьте .env.production
-cat timeflow/.env.production
+cat chronika/.env.production
 
 # 2. Проверьте логи
 docker-compose logs backend
 
 # 3. Выполните миграции
-docker exec timeflowapi-backend python manage.py migrate
+docker exec chronikaapi-backend python manage.py migrate
 ```
 
 ### Проблема: Ошибки при сборке
@@ -423,7 +423,7 @@ alias dcr='docker-compose restart'
 - **Порт:** 8000 (внутренний)
 - **Healthcheck:** `/api/health/`
 - **WSGI:** Gunicorn с 4 workers
-- **Переменные:** `timeflow/.env.production`
+- **Переменные:** `chronika/.env.production`
 
 ### Frontend (Vue.js)
 - **Сборка:** Multi-stage build в Docker

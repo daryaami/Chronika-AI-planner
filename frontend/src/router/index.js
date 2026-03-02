@@ -15,7 +15,7 @@ const router = createRouter({
       component: () => import("../views/Callback.vue"),
       meta: {
         layout: 'login',
-        metaTitle: 'Log in to TimeFlow'
+        metaTitle: 'Log in to Chronika'
       },
     },
     {
@@ -23,7 +23,7 @@ const router = createRouter({
       component: () => import("../views/LoginView.vue"),
       meta: {
         layout: 'login',
-        metaTitle: 'Log in to TimeFlow'
+        metaTitle: 'Log in to Chronika'
       },
     },
     {

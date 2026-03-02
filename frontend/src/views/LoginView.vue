@@ -1,6 +1,6 @@
 <script setup>
 import GoogleBtn from '../components/blocks/buttons/google-btn.vue'
-import TimeflowLogo from '../components/icons/timeflow-logo.vue'
+import ChronikaLogo from '../components/icons/app-logo.vue'
 import {BASE_API_URL} from "../config.ts";
 
 const loginWithGoogle = async () => {
@@ -22,17 +22,17 @@ const loginWithGoogle = async () => {
 
 <template>
     <section class="login-page">
-      <TimeflowLogo
+      <ChronikaLogo
         class="login-page__logo"
       />
-      <h1 class="login-page__title">Log in to TimeFlow</h1>
+      <h1 class="login-page__title">Log in to Chronika</h1>
 
       <GoogleBtn class="login-page__button"
         @click="loginWithGoogle"
         text="Continue with Google"
       />
 
-      <p class="login-page__privacy-text">By using TimeFlow, you agree to our Terms of Service and Privacy Policy.</p>
+      <p class="login-page__privacy-text">By using Chronika, you agree to our Terms of Service and Privacy Policy.</p>
     </section>
 </template>
 
