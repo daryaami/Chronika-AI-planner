@@ -26,7 +26,7 @@ defineProps<Props>()
 .calendar-check {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 16px;
   padding: 5px 6px 5px 10px;
   border-radius: 4px;
   cursor: pointer;
@@ -55,8 +55,8 @@ defineProps<Props>()
 
   &__color {
     display: block;
-    width: 10px;
-    height: 10px;
+    width: 12px;
+    height: 12px;
     border-radius: 4px;
 
     flex-shrink: 0;
@@ -71,13 +71,13 @@ defineProps<Props>()
     overflow: hidden;
     text-overflow: ellipsis;
 
-    font: var(--light-14);
+    font: var(--light-16);
   }
 
   &__icon {
     display: block;
-    width: 16px;
-    height: 16px;
+    width: 20px;
+    height: 20px;
     flex-shrink: 0;
 
     margin-left: auto;

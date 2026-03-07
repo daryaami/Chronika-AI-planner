@@ -10,7 +10,8 @@ import {useCalendarsStore} from "@/store/calendars";
 import {Calendar} from "@/types/calendar";
 import TimezoneSelect from "@/components/ui-kit/TimezoneSelect.vue";
 import DialogPopup from "@/components/ui-kit/DialogPopup.vue";
-import CalendarsPopup from "@/components/ui-kit/CalendarsPopup.vue";
+import CalendarsPopup from "@/components/profile/CalendarsPopup.vue";
+import CheckboxText from "@/components/ui-kit/checkboxes/CheckboxText.vue";
 
 
 // PROFILE DATA
@@ -49,6 +50,7 @@ onMounted(async () => {
 
 
 // CALENDARS
+
 const calendarStore = useCalendarsStore()
 const calendars = ref<Calendar[]>([])
 const isCalendarPopupOpened = ref(false)
@@ -80,6 +82,13 @@ watch(isCalendarPopupOpened, (isOpened) => {
 onMounted(async () => {
   await loadCalendars()
 })
+
+
+
+// DELETE
+const isDeletePopupOpened = ref(false)
+const isSureDeleteAccount = ref(false)
+const isSureDeleteData = ref(false)
 </script>
 
 <template>
@@ -149,6 +158,36 @@ onMounted(async () => {
       <div class="profile-page__fields">
         <TimezoneSelect  />
       </div>
+
+      <div class="profile-page__fields">
+        <div class="profile-field">
+          <span class="profile-field__label">Delete Chronika Account</span>
+          <span class="profile-field__value">This action will remove all your data. It is irreversible. </span>
+          <IconText class="profile-page__delete"
+                    tag="button"
+                    type="error"
+                    size="m"
+                    text="Delete Account"
+                    @click="isDeletePopupOpened = true"
+          />
+
+          <DialogPopup v-model="isDeletePopupOpened"
+                       title="Delete account"
+                       :is-confirm-disabled="!isSureDeleteAccount || !isSureDeleteData"
+          >
+            <div class="delete-popup">
+              <p class="delete-popup__text">Deleting account will remove all your data!</p>
+              <div class="delete-popup__checkboxes">
+                <CheckboxText v-model="isSureDeleteAccount"
+                              text="I am sure I want to delete my account."
+                />
+                <CheckboxText v-model="isSureDeleteData"
+                              text="I am aware that deleting account will remove all my data." />
+              </div>
+            </div>
+          </DialogPopup>
+        </div>
+      </div>
     </div>
   </div>
   </div>
@@ -208,6 +247,10 @@ onMounted(async () => {
     flex-direction: column;
     gap: 32px;
   }
+
+  &__delete {
+    margin-top: 14px;
+  }
 }
 
 .profile-field {
@@ -231,4 +274,17 @@ onMounted(async () => {
   }
 }
 
+.delete-popup {
+  &__text {
+    font: var(--light-14);
+    color: var(--text-error);
+    margin-bottom: 32px;
+  }
+
+  &__checkboxes {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+}
 </style>

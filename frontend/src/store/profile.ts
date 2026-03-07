@@ -4,6 +4,7 @@ import {ref} from "vue";
 import {useAuthStore} from "./auth";
 import {BASE_API_URL} from "@/config";
 import type { ProfileDataType } from "@/types/profile";
+import {useRouter} from "vue-router";
 
 export const useProfileStore = defineStore("userData", () => {
   const profileData = ref<ProfileData | null>(null)
@@ -32,5 +33,18 @@ export const useProfileStore = defineStore("userData", () => {
     return profileData.value
   }
 
-  return { profileData, fetchProfileData, getProfileData }
+  const deleteProfile = async (): Promise<void> => {
+    await fetch(`${BASE_API_URL}/users/profile/`, {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: {
+        'Authorization': `JWT ${authStore.getAccessToken()}`
+      }
+    })
+
+    const router = useRouter()
+    await router.push('/login/')
+  }
+
+  return { profileData, fetchProfileData, getProfileData, deleteProfile }
 })

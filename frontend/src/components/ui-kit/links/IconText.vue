@@ -8,7 +8,7 @@ withDefaults(defineProps<{
   leftIcon?: string,
   text?: string,
   rightIcon?: string
-  type?: 'accent' | null,
+  type?: 'accent' | 'error',
 }>(), {
   size: 'm',
   tag: 'button',
@@ -59,7 +59,7 @@ withDefaults(defineProps<{
   }
 
   &--m {
-    font: var(--light-14);
+    font: var(--light-16);
     gap: 5px;
 
     & svg {
@@ -85,6 +85,14 @@ withDefaults(defineProps<{
 
   &--accent {
     color: var(--text-primary-hover);
+  }
+
+  &--error {
+    color: var(--text-error);
+
+    @include hover {
+      color: var(--text-error);
+    }
   }
 }
 </style>

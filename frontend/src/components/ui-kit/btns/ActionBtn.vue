@@ -21,11 +21,13 @@ defineEmits<{
 </template>
 
 <style lang="scss" scoped>
+@use '@/assets/scss/mixins/mixins' as *;
+
 .action-btn {
-  padding: 8px 16px;
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 20px;
+  padding: 5px 12px;
+
+  font: var(--light-16);
+
   border-radius: 6px;
   cursor: pointer;
   border: 1px solid transparent;
@@ -34,12 +36,21 @@ defineEmits<{
     color: #374151;
     background: #ffffff;
     border-color: #d1d5db;
+
+    @include hover {
+      background: var(--bg-primary-hover);
+    }
   }
 
   &--primary {
     color: #ffffff;
     background: #3b82f6;
     border-color: #3b82f6;
+
+    &[disabled] {
+      opacity: .4;
+      cursor: default;
+    }
   }
 }
 </style>

@@ -12,7 +12,8 @@ interface Props {
   title?: string
   confirmText?: string
   cancelText?: string
-  type?: 'small' | 'default'
+  type?: 'small' | 'default',
+  isConfirmDisabled?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -87,6 +88,7 @@ const onNativeClose = () => {
   <dialog
     ref="dialogRef"
     class="modal"
+    :class="type === 'small'? 'modal--small': ''"
     @click="onBackdropClick"
     @cancel="onNativeClose"
   >
@@ -95,7 +97,7 @@ const onNativeClose = () => {
         {{ title }}
       </div>
 
-      <IconBtn icon="cross" size="xxs" @click="close(true)" />
+      <IconBtn icon="cross" size="s" @click="close(true)" />
     </div>
 
     <div class="modal__body">
@@ -113,6 +115,7 @@ const onNativeClose = () => {
         :text="confirmText"
         type="primary"
         @click="onConfirm"
+        :disabled="isConfirmDisabled"
       />
     </div>
   </dialog>
@@ -124,13 +127,17 @@ const onNativeClose = () => {
   border-radius: 8px;
   padding: 12px 16px;
   width: 100%;
-  max-width: 287px;
+  max-width: 360px;
   box-shadow:
     0 20px 25px -5px rgba(0, 0, 0, 0.1),
     0 10px 10px -5px rgba(0, 0, 0, 0.04);
 
   &::backdrop {
     background: rgba(0, 0, 0, 0.5);
+  }
+
+  &--small {
+    max-width: 300px;
   }
 
   &__header {
@@ -142,11 +149,11 @@ const onNativeClose = () => {
   }
 
   &__title {
-    font: var(--bold-14);
+    font: var(--bold-18);
   }
 
   &__body {
-    margin-bottom: 12px;
+    margin-bottom: 24px;
   }
 
   &__footer {
