@@ -3,7 +3,7 @@ import { ref, watch, onMounted } from 'vue'
 import vSelect from 'vue-select'
 import 'vue-select/dist/vue-select.css'
 import { listTz, clientTz } from 'timezone-select-js'
-import IconBtn from "@/components/ui-kit/IconBtn.vue";
+import IconBtn from "@/components/ui-kit/btns/IconBtn.vue";
 
 
 interface TimezoneRaw {

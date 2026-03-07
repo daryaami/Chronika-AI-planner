@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import IconBtn from "@/components/ui-kit/IconBtn.vue";
+import IconBtn from "@/components/ui-kit/btns/IconBtn.vue";
 import SelectSmall from "@/components/blocks/form/SelectSmall.vue";
 import { SelectSmallOption } from "@/types/selectSmallOption";
 import { ref, computed, onMounted } from "vue";

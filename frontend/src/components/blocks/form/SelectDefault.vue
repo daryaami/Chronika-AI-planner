@@ -2,7 +2,7 @@
 import Dropdown from "@/components/ui-kit/Dropdown.vue";
 import {computed, ref} from "vue";
 import {useDropdown} from "@/components/composables/useDropdown";
-import NavLink from "@/components/ui-kit/NavLink.vue";
+import NavLink from "@/components/ui-kit/links/NavLink.vue";
 
 interface SelectDefaultOption {
   value: string | null,

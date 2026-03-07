@@ -2,7 +2,7 @@
 import {TimeLog} from "@/types/task";
 import {computed} from "vue";
 import {toWeekDayAndDate} from "@/components/js/time-utils";
-import IconBtn from "@/components/ui-kit/IconBtn.vue";
+import IconBtn from "@/components/ui-kit/btns/IconBtn.vue";
 
 const props = defineProps<{
   timeLog: TimeLog

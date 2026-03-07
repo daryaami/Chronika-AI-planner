@@ -33,7 +33,7 @@ withDefaults(defineProps<{
 </template>
 
 <style scoped lang="scss">
-@use '@/assets/scss/mixins/mixins.scss' as *;
+@use '@/assets/scss/mixins/mixins' as *;
 
 .icon-text {
   padding: 0;

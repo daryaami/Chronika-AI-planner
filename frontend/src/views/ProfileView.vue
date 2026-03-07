@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import ProfilePlaceholderIcon from "@/assets/img/profile-placeholder.svg?url";
-import IconText from "@/components/ui-kit/IconText.vue";
-import {computed, onMounted, ref} from "vue";
+import IconText from "@/components/ui-kit/links/IconText.vue";
+import {computed, onMounted, ref, watch} from "vue";
 import {useProfileStore} from "@/store/profile";
 import EditableName from "@/components/ui-kit/EditableName.vue";
 import {ProfileDataType} from "@/types/profile";
@@ -9,15 +9,17 @@ import {getMonthAndYear} from "@/components/js/time-utils";
 import {useCalendarsStore} from "@/store/calendars";
 import {Calendar} from "@/types/calendar";
 import TimezoneSelect from "@/components/ui-kit/TimezoneSelect.vue";
+import DialogPopup from "@/components/ui-kit/DialogPopup.vue";
+import CalendarsPopup from "@/components/ui-kit/CalendarsPopup.vue";
 
+
+// PROFILE DATA
 const profileStore = useProfileStore()
-const calendarStore = useCalendarsStore()
 
 const profilePic = ref<string>(ProfilePlaceholderIcon)
 const name = ref<string>('')
 
 const profileData = ref<ProfileDataType | null>(null)
-const calendars = ref<Calendar[]>([])
 
 const displayedJoinOn = computed(() => {
   if (!profileData.value?.joined_on) {
@@ -40,19 +42,49 @@ const loadProfileData = async () => {
   name.value = profileData.value.name;
 }
 
-const loadCalendars = async () => {
-  calendars.value = await calendarStore.getCalendars()
-}
-
 onMounted(async () => {
   await loadProfileData()
-  await loadCalendars()
 })
 
+
+
+// CALENDARS
+const calendarStore = useCalendarsStore()
+const calendars = ref<Calendar[]>([])
+const isCalendarPopupOpened = ref(false)
+const originalCalendars = ref<Calendar[]>([])
+
+const loadCalendars = async () => {
+  calendars.value = await calendarStore.getCalendars()
+  console.log('calendar load')
+}
+
+const onCalendarConfirm = async () => {
+  const hasChanges = JSON.stringify(calendars.value) !== JSON.stringify(originalCalendars.value)
+  if (!hasChanges) return
+
+  await calendarStore.setUpdatedCalendars(calendars.value)
+  await loadCalendars()
+}
+
+const onCalendarCancel = () => {
+  calendars.value = JSON.parse(JSON.stringify(originalCalendars.value))
+}
+
+watch(isCalendarPopupOpened, (isOpened) => {
+  if (isOpened) {
+    originalCalendars.value = JSON.parse(JSON.stringify(calendars.value))
+  }
+})
+
+onMounted(async () => {
+  await loadCalendars()
+})
 </script>
 
 <template>
-  <div class="profile-header">
+  <div>
+     <div class="profile-header">
     <h1 class="profile-header__title">My profile</h1>
   </div>
 
@@ -91,8 +123,24 @@ onMounted(async () => {
         </div>
 
         <div class="profile-field" v-if="calendars.length">
-          <span class="profile-field__label">Connected Calendars ({{ calendars.length }})</span>
+          <div class="profile-field__label-wrapper">
+            <span class="profile-field__label">Connected Calendars ({{ calendars.length }})</span>
+            <IconText tag="button"
+                      type="accent"
+                      size="m"
+                      weight="reg"
+                      text="Edit"
+                      @click="isCalendarPopupOpened = true"
+            />
+          </div>
           <span class="profile-field__value" v-if="displayedCalendarsText">{{ displayedCalendarsText }}</span>
+          <DialogPopup v-model="isCalendarPopupOpened"
+                       type="small"
+                       @confirm="onCalendarConfirm"
+                       @cancel="onCalendarCancel"
+          >
+            <CalendarsPopup :calendars="calendars" />
+          </DialogPopup>
         </div>
 
 
@@ -102,6 +150,7 @@ onMounted(async () => {
         <TimezoneSelect  />
       </div>
     </div>
+  </div>
   </div>
 </template>
 
@@ -166,6 +215,12 @@ onMounted(async () => {
   flex-direction: column;
   gap: 4px;
 
+  &__label-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
   &__label {
     font: var(--bold-16);
   }
@@ -175,4 +230,5 @@ onMounted(async () => {
     color: var(--text-primary-muted);
   }
 }
+
 </style>

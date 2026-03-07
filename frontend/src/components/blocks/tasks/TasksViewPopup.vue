@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import RoundIconButton from "@/components/ui-kit/RoundIconButton.vue";
+import RoundIconButton from "@/components/ui-kit/btns/RoundIconButton.vue";
 import Dropdown from "@/components/ui-kit/Dropdown.vue";
 import {ref} from "vue";
 import {useDropdown} from "@/components/composables/useDropdown";
-import ToggleButtons from "@/components/ui-kit/ToggleButtons.vue";
+import ToggleButtons from "@/components/ui-kit/btns/ToggleButtons.vue";
 
 const rootEl = ref<HTMLElement | null>(null);
 const { isOpen, toggle } = useDropdown(rootEl);

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from 'vue';
-import IconBtn from "@/components/ui-kit/IconBtn.vue";
+import IconBtn from "@/components/ui-kit/btns/IconBtn.vue";
 
 const props = defineProps({
   modelValue: {

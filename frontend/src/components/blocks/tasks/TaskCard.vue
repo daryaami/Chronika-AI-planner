@@ -13,7 +13,7 @@ import {useCategoriesStore} from "@/store/categories";
 import {Category} from "@/types/category";
 import DurationInput from "@/components/blocks/form/DurationInput.vue";
 import TimeLogCard from "@/components/blocks/tasks/TimeLogCard.vue";
-import IconBtn from "@/components/ui-kit/IconBtn.vue";
+import IconBtn from "@/components/ui-kit/btns/IconBtn.vue";
 
 const taskStore = useTasksStore();
 

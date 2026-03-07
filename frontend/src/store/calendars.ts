@@ -5,9 +5,9 @@ import {Calendar} from "@/types/calendar";
 
 export const useCalendarsStore = () => {
   const calendars = ref<Calendar[]>([])
+  const authStore = useAuthStore();
 
   const fetchCalendars = async () => {
-    const authStore = useAuthStore();
 
     const fetchFn = () =>
       fetch(`${BASE_API_URL}/events/calendars/`, {
@@ -24,7 +24,6 @@ export const useCalendarsStore = () => {
 
   const getCalendars = async () => {
 
-
     if (!calendars.value.length) {
       await fetchCalendars();
     }
@@ -40,6 +39,24 @@ export const useCalendarsStore = () => {
     return calendars.value.find(calendar => calendar.id === id)
   }
 
+  const setUpdatedCalendars = async (payload: Calendar[]) => {
+    const fetchFn = () =>
+      fetch(`${BASE_API_URL}/events/calendars/update/`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Authorization': `JWT ${authStore.getAccessToken()}`
+        },
+        body: JSON.stringify(payload)
+      })
 
-  return { getCalendars, getCalendarById }
+    const response = await authStore.ensureAuthorizedRequest(fetchFn)
+
+    if (response.ok) {
+      calendars.value = await response.json()
+    }
+  }
+
+
+  return { getCalendars, getCalendarById, setUpdatedCalendars }
 }

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
 import Dropdown from "@/components/ui-kit/Dropdown.vue";
-import NavLink from "@/components/ui-kit/NavLink.vue";
+import NavLink from "@/components/ui-kit/links/NavLink.vue";
 import { SelectSmallOption } from "@/types/selectSmallOption";
 import { useDropdown } from "@/components/composables/useDropdown";
 

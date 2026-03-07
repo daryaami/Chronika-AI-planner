@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import Dropdown from "@/components/ui-kit/Dropdown.vue";
 import {EventInput} from "@fullcalendar/core";
-import IconBtn from "@/components/ui-kit/IconBtn.vue";
+import IconBtn from "@/components/ui-kit/btns/IconBtn.vue";
 import {computed, onBeforeUnmount, onMounted, useTemplateRef} from "vue";
 import {useEventsStore} from "@/store/events";
 

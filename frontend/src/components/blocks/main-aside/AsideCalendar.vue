@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import IconBtn from "@/components/ui-kit/IconBtn.vue";
+import IconBtn from "@/components/ui-kit/btns/IconBtn.vue";
 import {getCurrentWeekMonday, getTomorrow} from "@/components/js/time-utils";
 
 const props = defineProps({

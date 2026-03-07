@@ -4,7 +4,7 @@ import {useProfileStore} from "@/store/profile";
 import {ref, onMounted, useTemplateRef} from "vue";
 import Dropdown from "@/components/ui-kit/Dropdown.vue";
 import {useDropdown} from "@/components/composables/useDropdown";
-import NavLink from "@/components/ui-kit/NavLink.vue";
+import NavLink from "@/components/ui-kit/links/NavLink.vue";
 import {useAuthStore} from "@/store/auth";
 
 const rootEl = useTemplateRef('rootEl')

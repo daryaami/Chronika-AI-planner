@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import IconText from "@/components/ui-kit/IconText.vue";
+import IconText from "@/components/ui-kit/links/IconText.vue";
 import {UISize} from "@/types/UISize";
 import {Button} from "@/types/button";
 import {computed} from "vue";

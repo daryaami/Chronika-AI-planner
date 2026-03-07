@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {Task} from "@/types/task";
-import IconBtn from "@/components/ui-kit/IconBtn.vue";
+import IconBtn from "@/components/ui-kit/btns/IconBtn.vue";
 import {useTasksStore} from "@/store/tasks";
 import {ref, computed, watch, onMounted} from "vue";
 import {formatDueDate} from "@/components/js/time-utils";
