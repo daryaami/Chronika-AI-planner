@@ -233,9 +233,26 @@ class UpdateUserCalendarApi(APIView):
     )
     def post(self, request, *args, **kwargs):
         try:
+            # Сохраняем выбранные календари из payload до удаления
+            payload = request.data if request.data else []
+            selected_states = {}
+            if isinstance(payload, list):
+                for cal in payload:
+                    gc_id = cal.get('google_calendar_id') or cal.get('calendar_id')
+                    if gc_id and 'selected' in cal:
+                        selected_states[str(gc_id)] = bool(cal['selected'])
+
             UserCalendar.objects.filter(user=request.user).delete()
             calendar_service = GoogleCalendarService()
             calendar_service.create_user_calendars(request.user)
+
+            # Применяем сохранённые состояния selected из payload
+            for gc_id, selected in selected_states.items():
+                UserCalendar.objects.filter(
+                    user=request.user,
+                    google_calendar_id=gc_id
+                ).update(selected=selected)
+
             user_calendars = UserCalendar.objects.filter(user=request.user)
             serializer = UserCalendarSerializer(user_calendars, many=True)
             return Response(serializer.data, status=status.HTTP_200_OK)

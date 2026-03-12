@@ -41,7 +41,6 @@ urlpatterns = [
     # Healthcheck endpoint для мониторинга
     path('api/health/', HealthCheckView.as_view(), name='health'),
     path('api/auth/google/', include('google_auth.urls')),
-    path('api/auth/jwt/', include('users.urls')),
     path('api/events/', include('events.urls')),
     path('api/users/', include('users.urls')),
     path('api/tasks/', include('tasks.urls')),

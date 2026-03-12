@@ -1,4 +1,5 @@
 # events/services.py
+import re
 import requests
 from google_auth.services import get_user_credentials
 from core.exceptions import EventNotFoundError, GoogleNetworkError
@@ -10,6 +11,9 @@ import logging
 from core.exceptions import CalendarCreationError, CalendarSyncError
 
 logger = logging.getLogger(__name__)
+
+# IANA timezone format (e.g. Europe/Moscow) — для валидации timezone из Google Calendar
+IANA_TIMEZONE_RE = re.compile(r"^[A-Za-z]+(?:[._-][A-Za-z0-9]+)*(?:/[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*)+$")
 
 
 class GoogleCalendarService:
@@ -72,9 +76,27 @@ class GoogleCalendarService:
     def create_user_calendars(self, user):
         """
         Создает календари пользователя в базе данных.
+        При первом создании профиля устанавливает timezone пользователя из primary-календаря,
+        т.к. Google userinfo не возвращает timezone.
         """
         try:
             calendars = self.get_google_calendars(user)
+            # Устанавливаем timezone пользователя из primary-календаря, если у него ещё нет
+            if not user.time_zone:
+                primary_cal = next(
+                    (c for c in calendars if c.get("primary") in (True, "true")),
+                    None,
+                )
+                if primary_cal:
+                    tz = primary_cal.get("time_zone")
+                    if tz and isinstance(tz, str) and IANA_TIMEZONE_RE.match(tz.strip()):
+                        user.time_zone = tz.strip()
+                        user.save(update_fields=["time_zone"])
+                        logger.info(
+                            "Set user %s timezone from primary calendar: %s",
+                            user.email,
+                            user.time_zone,
+                        )
             serializer = UserCalendarSerializer(data=calendars, many=True)
             if serializer.is_valid():
                 user_calendars = [UserCalendar(**data, user=user) for data in serializer.validated_data]
