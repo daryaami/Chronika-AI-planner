@@ -36,7 +36,7 @@ class AssistantMessage(models.Model):
         ordering = ['-created_at']
 
     def __str__(self):
-        return f"Assistant Message {self.id} for {self.session.title}"
+        return f"Assistant Message {self.id} for {self.session.id}"
 
 class PromptTemplate(models.Model):
     id = models.BigAutoField(primary_key=True)

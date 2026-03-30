@@ -8,3 +8,4 @@ k8s/
 compose/
 **/logs/
 venv/
+models/

@@ -8,10 +8,18 @@ services:
       - ./chronika/.env.production
     environment:
       - DJANGO_ENV=production
+      - EMBEDDINGS_MODEL_ID=BAAI/bge-m3
+      - EMBEDDINGS_MODEL_PATH=/app/models/embeddings/bge-m3
+      - EMBEDDINGS_CACHE_DIR=/app/.hf-cache
+      - EMBEDDINGS_DEVICE=cpu
+      - EMBEDDINGS_TRUST_REMOTE_CODE=false
     expose:
       - "8000"
     networks:
       - appnet
+    volumes:
+      - ./models:/app/models
+      - hf_cache:/app/.hf-cache
 
   frontend:
     build:
@@ -57,6 +65,8 @@ volumes:
   frontend_dist:
     driver: local
   pgdata:
+    driver: local
+  hf_cache:
     driver: local
 
 networks:
