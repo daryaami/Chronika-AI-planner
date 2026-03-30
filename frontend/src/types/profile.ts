@@ -6,4 +6,5 @@ export interface ProfileDataType {
   picture: string;
   joined_on: string;
   is_active: boolean;
+  time_zone: string;
 }
