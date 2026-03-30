@@ -289,3 +289,18 @@ GOOGLE_OAUTH2_PROJECT_ID = os.getenv('GOOGLE_OAUTH2_PROJECT_ID')
 GOOGLE_API_URI = os.getenv("GOOGLE_API_URI")
 
 # GOOGLE_API_URI = "https://chronika.nowheiscursed.space/auth/google/callback/"
+
+
+EMBEDDINGS_MODEL_ID = os.getenv("EMBEDDINGS_MODEL_ID", "BAAI/bge-m3")
+EMBEDDINGS_MODEL_PATH = os.getenv("EMBEDDINGS_MODEL_PATH", "").strip() or None
+EMBEDDINGS_CACHE_DIR = os.getenv("EMBEDDINGS_CACHE_DIR", str(BASE_DIR / ".hf-cache"))
+EMBEDDINGS_DEVICE = os.getenv("EMBEDDINGS_DEVICE", "cpu")
+EMBEDDINGS_TRUST_REMOTE_CODE = os.getenv(
+    "EMBEDDINGS_TRUST_REMOTE_CODE",
+    "false",
+).lower() == "true"
+
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
+MISTRAL_API_BASE_URL = os.getenv("MISTRAL_API_BASE_URL", "https://api.mistral.ai")
+MISTRAL_MODEL = os.getenv("MISTRAL_MODEL", "mistral-medium-latest")
+MISTRAL_TIMEOUT_SECONDS = int(os.getenv("MISTRAL_TIMEOUT_SECONDS", "30"))
