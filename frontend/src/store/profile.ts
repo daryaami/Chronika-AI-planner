@@ -7,7 +7,7 @@ import type { ProfileDataType } from "@/types/profile";
 import {useRouter} from "vue-router";
 
 export const useProfileStore = defineStore("userData", () => {
-  const profileData = ref<ProfileData | null>(null)
+  const profileData = ref<ProfileDataType | null>(null)
   const authStore = useAuthStore();
   const router = useRouter()
 
@@ -23,7 +23,7 @@ export const useProfileStore = defineStore("userData", () => {
       })
 
     const response = await authStore.ensureAuthorizedRequest(fetchFn)
-    profileData.value = await response.json() as ProfileData
+    profileData.value = await response.json() as ProfileDataType
   }
 
   const getProfileData = async (): Promise<ProfileDataType | null> => {
