@@ -90,7 +90,7 @@ export const useEventsStore = defineStore('events', () => {
       events.value.push(adaptEventToFullCalendar(event))
 
       const updatedTask = await taskStore.loadTaskById(task.id)
-      task.time_logs = updatedTask.time_logs
+      task.events = updatedTask.events
 
       return event
     }

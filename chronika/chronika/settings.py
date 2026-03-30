@@ -57,7 +57,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
     'drf_yasg',
-    
+    "pgvector.django",
     'core',
     'google_auth',
     'users',
@@ -148,8 +148,20 @@ DATABASES = {
         'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
+# DATABASES = {
+#     "default": {
+#         "ENGINE": "django.db.backends.postgresql",
+#         "NAME": os.environ.get("DATABASE_NAME", "chronika"),
+#         "USER": os.environ.get("DATABASE_USER", "postgres"),
+#         "PASSWORD": os.environ.get("DATABASE_PASSWORD", "postgres"),
+#         "HOST": os.environ.get("DATABASE_HOST", "chronikaapi-db"),
+#         "PORT": os.environ.get("DATABASE_PORT", "5432"),
+#     }
+# }
 
-log_directory = os.path.dirname(BASE_DIR / 'logs/django.log')
+
+log_file_path = BASE_DIR / 'logs' / 'django.log'
+log_directory = os.path.dirname(log_file_path)
 if not os.path.exists(log_directory):
     os.makedirs(log_directory)
 
@@ -175,7 +187,7 @@ LOGGING = {
         'file': {
             'level': 'ERROR',
             'class': 'logging.FileHandler',
-            'filename': 'logs/django.log',
+            'filename': str(log_file_path),
             'formatter': 'verbose',
         },
     },

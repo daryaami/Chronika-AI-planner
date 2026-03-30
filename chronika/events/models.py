@@ -1,6 +1,7 @@
 from django.db import models
 from django.conf import settings
 from django.db.models import Q, UniqueConstraint
+from pgvector.django import VectorField
 
 User = settings.AUTH_USER_MODEL
 
@@ -59,3 +60,37 @@ class UserCalendar(models.Model):
 
     def __str__(self):
         return f"{self.summary} ({self.google_calendar_id})"
+
+
+class Event(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    user_calendar = models.ForeignKey(UserCalendar, on_delete=models.CASCADE, related_name='events')
+    google_event_id = models.CharField(max_length=256, null=True, blank=True, help_text="ID события в Google Calendar")
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+    summary = models.CharField(max_length=256, null=True, blank=True, help_text="Название события")
+    description = models.TextField(null=True, blank=True, help_text="Описание события")
+    start = models.DateTimeField(null=True, blank=True, help_text="Дата начала события")
+    end = models.DateTimeField(null=True, blank=True, help_text="Дата окончания события")
+    htmlLink = models.URLField(null=True, blank=True, help_text="Ссылка на событие в Google Calendar")
+    organizer_email = models.EmailField(null=True, blank=True, help_text="Email организатора")
+    # embedding = VectorField(dimensions=1024, null=True, blank=True)
+
+    task = models.ForeignKey(
+        'tasks.Task',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="events"
+    )
+    class Meta:
+        constraints = [
+            UniqueConstraint(
+                fields=["user_calendar", "google_event_id"],
+                name="unique_event_id_when_user_calendar_id_is_not_null"
+            )
+        ]
+        ordering = ['start']
+
+    def __str__(self):
+        return self.summary

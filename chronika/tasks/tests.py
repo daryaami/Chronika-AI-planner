@@ -1,3 +1,177 @@
-from django.test import TestCase
+from django.urls import reverse
+from rest_framework import status
+from rest_framework.test import APITestCase
 
-# Create your tests here.
+from events.models import UserCalendar
+from tasks.models import Category, Task
+from users.models import CustomUser
+
+
+class TasksApiTests(APITestCase):
+    def setUp(self):
+        self.user = CustomUser.objects.create_user(
+            email="tasks@example.com",
+            name="Tasks User",
+            password="password123",
+            google_id="google-tasks-1",
+        )
+        self.other_user = CustomUser.objects.create_user(
+            email="other@example.com",
+            name="Other User",
+            password="password123",
+            google_id="google-other-1",
+        )
+
+        self.primary_calendar = UserCalendar.objects.create(
+            user=self.user,
+            google_calendar_id="primary-cal-id",
+            summary="Primary",
+            selected=True,
+            owner=True,
+            primary=True,
+        )
+        other_calendar = UserCalendar.objects.create(
+            user=self.other_user,
+            google_calendar_id="other-cal-id",
+            summary="Other",
+            selected=True,
+            owner=True,
+            primary=True,
+        )
+
+        Task.objects.create(
+            user=self.user,
+            title="My task",
+            calendar=self.primary_calendar,
+        )
+        Task.objects.create(
+            user=self.other_user,
+            title="Other task",
+            calendar=other_calendar,
+        )
+
+        self.client.force_authenticate(self.user)
+
+    def test_tasks_list_returns_only_current_user_tasks(self):
+        url = reverse("task-list")
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]["title"], "My task")
+
+    def test_task_create_uses_primary_calendar_when_not_provided(self):
+        url = reverse("task-list")
+        response = self.client.post(
+            url,
+            {"title": "Task without calendar"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        created_task = Task.objects.get(id=response.data["id"])
+        self.assertEqual(created_task.calendar_id, self.primary_calendar.id)
+        self.assertEqual(created_task.user_id, self.user.id)
+
+    def test_categories_include_defaults_and_own_only(self):
+        Category.objects.create(name="Default", color="#ffffff", is_default=True)
+        Category.objects.create(name="Mine", color="#000000", user=self.user, is_default=False)
+        Category.objects.create(
+            name="Other private",
+            color="#ff0000",
+            user=self.other_user,
+            is_default=False,
+        )
+
+        url = reverse("category-list")
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        names = {item["name"] for item in response.data}
+        self.assertIn("Default", names)
+        self.assertIn("Mine", names)
+        self.assertNotIn("Other private", names)
+
+    def test_task_detail_for_foreign_task_returns_404(self):
+        foreign_task = Task.objects.filter(user=self.other_user).first()
+
+        url = reverse("task-detail", args=[foreign_task.id])
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_task_patch_updates_own_task(self):
+        own_task = Task.objects.filter(user=self.user).first()
+
+        url = reverse("task-detail", args=[own_task.id])
+        response = self.client.patch(url, {"title": "Updated task"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        own_task.refresh_from_db()
+        self.assertEqual(own_task.title, "Updated task")
+
+    def test_category_create_creates_for_current_user(self):
+        url = reverse("category-list")
+        response = self.client.post(
+            url,
+            {"name": "Work", "color": "#123456", "is_default": False},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        created = Category.objects.get(id=response.data["id"])
+        self.assertEqual(created.user_id, self.user.id)
+
+    def test_task_delete_removes_own_task(self):
+        own_task = Task.objects.filter(user=self.user).first()
+
+        url = reverse("task-detail", args=[own_task.id])
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Task.objects.filter(id=own_task.id).exists())
+
+    def test_category_detail_get_patch_delete_for_own_category(self):
+        category = Category.objects.create(
+            name="Personal",
+            color="#222222",
+            user=self.user,
+            is_default=False,
+        )
+        detail_url = reverse("category-detail", args=[category.id])
+
+        get_response = self.client.get(detail_url)
+        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(get_response.data["name"], "Personal")
+
+        patch_response = self.client.patch(
+            detail_url,
+            {"name": "Personal Updated"},
+            format="json",
+        )
+        self.assertEqual(patch_response.status_code, status.HTTP_200_OK)
+        category.refresh_from_db()
+        self.assertEqual(category.name, "Personal Updated")
+
+        delete_response = self.client.delete(detail_url)
+        self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Category.objects.filter(id=category.id).exists())
+
+    def test_category_detail_for_foreign_private_category_returns_404(self):
+        foreign_category = Category.objects.create(
+            name="Foreign",
+            color="#333333",
+            user=self.other_user,
+            is_default=False,
+        )
+        detail_url = reverse("category-detail", args=[foreign_category.id])
+
+        response = self.client.get(detail_url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_task_delete_for_foreign_task_returns_404(self):
+        foreign_task = Task.objects.filter(user=self.other_user).first()
+        url = reverse("task-detail", args=[foreign_task.id])
+
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

@@ -48,13 +48,13 @@ const sortTasks = () => {
       return;
     }
 
-    if (!item.time_logs.length) {
+    if (!item.events.length) {
       sortedToInbox.push(item)
       return
     }
 
     // сортируем логи по возрастанию
-    const sortedLogs = [...item.time_logs].sort(
+    const sortedLogs = [...item.events].sort(
       (a, b) =>
         new Date(a.start_time).getTime() -
         new Date(b.start_time).getTime()
