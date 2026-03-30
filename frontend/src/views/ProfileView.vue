@@ -12,13 +12,17 @@ import TimezoneSelect from "@/components/ui-kit/TimezoneSelect.vue";
 import DialogPopup from "@/components/ui-kit/DialogPopup.vue";
 import CalendarsPopup from "@/components/profile/CalendarsPopup.vue";
 import CheckboxText from "@/components/ui-kit/checkboxes/CheckboxText.vue";
+import {useBrowserBack} from "@/components/composables/useBrowserBack";
 
 
 // PROFILE DATA
 const profileStore = useProfileStore()
+const {goBack} = useBrowserBack()
 
 const profilePic = ref<string>(ProfilePlaceholderIcon)
 const name = ref<string>('')
+const timeZone = ref<string>('')
+const isInitialLoad = ref(true)
 
 const profileData = ref<ProfileDataType | null>(null)
 
@@ -31,7 +35,15 @@ const displayedJoinOn = computed(() => {
 })
 
 const displayedCalendarsText = computed(() => {
-  return calendars.value.map((calendar) => calendar.summary).join(', ')
+  return calendars.value
+    .filter((calendar) => calendar.selected)
+    .map((calendar) => calendar.summary)
+    .join(', ')
+})
+
+const displayedCalendarsCount = computed(() => {
+  return calendars.value
+    .filter((calendar) => calendar.selected).length
 })
 
 const loadProfileData = async () => {
@@ -41,7 +53,31 @@ const loadProfileData = async () => {
 
   profilePic.value = profileData.value.picture;
   name.value = profileData.value.name;
+  timeZone.value = profileData.value.time_zone;
+
+  isInitialLoad.value = false
 }
+
+const updateProfileData = () => {
+  if (isInitialLoad.value || !profileData.value) return
+
+  const payload = {
+    name: name.value,
+    time_zone: timeZone.value,
+  };
+
+  const hasChanges =
+    payload.name !== profileData.value.name ||
+    payload.time_zone !== profileData.value.time_zone
+
+  if (!hasChanges) return
+
+  profileStore.setUpdatedProfileData(payload)
+}
+
+watch([name, timeZone], () => {
+  updateProfileData()
+})
 
 onMounted(async () => {
   await loadProfileData()
@@ -58,7 +94,6 @@ const originalCalendars = ref<Calendar[]>([])
 
 const loadCalendars = async () => {
   calendars.value = await calendarStore.getCalendars()
-  console.log('calendar load')
 }
 
 const onCalendarConfirm = async () => {
@@ -89,6 +124,10 @@ onMounted(async () => {
 const isDeletePopupOpened = ref(false)
 const isSureDeleteAccount = ref(false)
 const isSureDeleteData = ref(false)
+
+const deleteAccount = async () => {
+  await profileStore.deleteProfile()
+}
 </script>
 
 <template>
@@ -104,7 +143,7 @@ const isSureDeleteData = ref(false)
               weight="bold"
               size="l"
               type="accent"
-
+              @click="goBack"
     />
   </div>
 
@@ -133,7 +172,7 @@ const isSureDeleteData = ref(false)
 
         <div class="profile-field" v-if="calendars.length">
           <div class="profile-field__label-wrapper">
-            <span class="profile-field__label">Connected Calendars ({{ calendars.length }})</span>
+            <span class="profile-field__label">Connected Calendars ({{ displayedCalendarsCount }})</span>
             <IconText tag="button"
                       type="accent"
                       size="m"
@@ -156,7 +195,7 @@ const isSureDeleteData = ref(false)
       </div>
 
       <div class="profile-page__fields">
-        <TimezoneSelect  />
+        <TimezoneSelect v-model="timeZone" />
       </div>
 
       <div class="profile-page__fields">
@@ -174,6 +213,7 @@ const isSureDeleteData = ref(false)
           <DialogPopup v-model="isDeletePopupOpened"
                        title="Delete account"
                        :is-confirm-disabled="!isSureDeleteAccount || !isSureDeleteData"
+                       @confirm="deleteAccount"
           >
             <div class="delete-popup">
               <p class="delete-popup__text">Deleting account will remove all your data!</p>

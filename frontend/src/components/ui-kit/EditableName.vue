@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue';
+import {ref, watch, onMounted, useTemplateRef} from 'vue';
 import IconBtn from "@/components/ui-kit/btns/IconBtn.vue";
 
 const props = defineProps({
@@ -14,7 +14,7 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['update:modelValue']);
-const el = ref(null);
+const el = useTemplateRef('el');
 const isEditable = ref(false);
 
 const syncFromModel = () => {
@@ -24,8 +24,9 @@ const syncFromModel = () => {
   }
 };
 
-const onInput = () => {
-  emit('update:modelValue', el.value.textContent);
+const onBlur = () => {
+  emit('update:modelValue', el.value?.textContent ?? '');
+  isEditable.value = false;
 };
 
 const onPaste = e => {
@@ -36,7 +37,16 @@ const onPaste = e => {
 
 const focusOnName = () => {
   isEditable.value = true;
-  setTimeout(() => el.value.focus(), 200);
+  setTimeout(() => {
+    if (!el.value) return;
+    el.value.focus();
+    const range = document.createRange();
+    const sel = window.getSelection();
+    range.selectNodeContents(el.value);
+    range.collapse(false);
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+  }, 200);
 }
 
 onMounted(syncFromModel);
@@ -52,10 +62,9 @@ watch(() => props.modelValue, syncFromModel);
       role="textbox"
       aria-multiline="false"
       :data-placeholder="placeholder"
-      @input="onInput"
       @keydown.enter.prevent
       @paste="onPaste"
-      @blur="isEditable = false"
+      @blur="onBlur"
     ></div>
 
     <IconBtn icon="edit"
