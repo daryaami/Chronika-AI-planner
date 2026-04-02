@@ -115,24 +115,7 @@ class UserCalendarEventsApi(APIView):
 
         calendar_service = GoogleCalendarService()
         event = calendar_service.create_event(request.user, google_calendar_id, event_data)
-        start_payload = event.get("start", {})
-        end_payload = event.get("end", {})
-        start_raw = start_payload.get("dateTime") or start_payload.get("date")
-        end_raw = end_payload.get("dateTime") or end_payload.get("date")
-        organizer_email = (event.get("organizer") or {}).get("email")
-
-        Event.objects.update_or_create(
-            user_calendar=user_calendar,
-            google_event_id=event.get("id"),
-            defaults={
-                "summary": event.get("summary"),
-                "description": event.get("description"),
-                "start": _parse_event_datetime(start_raw),
-                "end": _parse_event_datetime(end_raw),
-                "htmlLink": event.get("htmlLink"),
-                "organizer_email": organizer_email,
-            },
-        )
+        calendar_service.upsert_local_event(user_calendar=user_calendar, event_data=event)
         
         response_serializer = GoogleCalendarEventSerializer(event)
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
@@ -168,27 +151,10 @@ class UserCalendarEventsApi(APIView):
 
         ext_props = event.get("extendedProperties", {}).get("private", {})
         task_id = ext_props.get("chronika__task-id")
-        start_payload = event.get("start", {})
-        end_payload = event.get("end", {})
-        start_raw = start_payload.get("dateTime") or start_payload.get("date")
-        end_raw = end_payload.get("dateTime") or end_payload.get("date")
-        organizer_email = (event.get("organizer") or {}).get("email")
-
-        defaults = {
-            "summary": event.get("summary"),
-            "description": event.get("description"),
-            "start": _parse_event_datetime(start_raw),
-            "end": _parse_event_datetime(end_raw),
-            "htmlLink": event.get("htmlLink"),
-            "organizer_email": organizer_email,
-        }
-        if task_id:
-            defaults["task_id"] = task_id
-
-        Event.objects.update_or_create(
+        calendar_service.upsert_local_event(
             user_calendar=user_calendar,
-            google_event_id=event.get("id"),
-            defaults=defaults,
+            event_data=event,
+            task_id=task_id,
         )
 
         response_serializer = GoogleCalendarEventSerializer(event)
@@ -401,17 +367,14 @@ class EventFromTaskApi(APIView):
                 calendar_event['user_calendar_id'] = user_calendar.id
 
                 # 3. Сохраняем локальную запись Event, связанную с задачей
-                Event.objects.update_or_create(
+                calendar_event["summary"] = calendar_event.get("summary") or task.title
+                calendar_event["description"] = calendar_event.get("description") or task.notes
+                gcal_service.upsert_local_event(
                     user_calendar=user_calendar,
-                    google_event_id=calendar_event["id"],
-                    defaults={
-                        "task": task,
-                        "summary": calendar_event.get("summary") or task.title,
-                        "description": calendar_event.get("description") or task.notes,
-                        "start": validated["start"],
-                        "end": validated["end"],
-                        "htmlLink": calendar_event.get("htmlLink"),
-                    },
+                    event_data=calendar_event,
+                    task_id=task.id,
+                    start_dt=validated["start"],
+                    end_dt=validated["end"],
                 )
                 
         except Exception as e:

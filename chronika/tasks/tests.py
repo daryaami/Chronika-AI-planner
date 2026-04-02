@@ -1,10 +1,14 @@
+from django.test import override_settings
 from django.urls import reverse
+from unittest.mock import patch
 from rest_framework import status
 from rest_framework.test import APITestCase
 
+from core.enums import EmbeddingStatus
 from events.models import UserCalendar
 from tasks.models import Category, Task
 from users.models import CustomUser
+from tasks.tasks import generate_task_embedding
 
 
 class TasksApiTests(APITestCase):
@@ -60,7 +64,8 @@ class TasksApiTests(APITestCase):
         self.assertEqual(len(response.data), 1)
         self.assertEqual(response.data[0]["title"], "My task")
 
-    def test_task_create_uses_primary_calendar_when_not_provided(self):
+    @patch("tasks.services.generate_task_embedding.delay")
+    def test_task_create_uses_primary_calendar_when_not_provided(self, mocked_delay):
         url = reverse("task-list")
         response = self.client.post(
             url,
@@ -72,6 +77,8 @@ class TasksApiTests(APITestCase):
         created_task = Task.objects.get(id=response.data["id"])
         self.assertEqual(created_task.calendar_id, self.primary_calendar.id)
         self.assertEqual(created_task.user_id, self.user.id)
+        self.assertEqual(created_task.embedding_status, EmbeddingStatus.PENDING)
+        mocked_delay.assert_called_once_with(created_task.id)
 
     def test_categories_include_defaults_and_own_only(self):
         Category.objects.create(name="Default", color="#ffffff", is_default=True)
@@ -100,7 +107,8 @@ class TasksApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_task_patch_updates_own_task(self):
+    @patch("tasks.services.generate_task_embedding.delay")
+    def test_task_patch_updates_own_task(self, mocked_delay):
         own_task = Task.objects.filter(user=self.user).first()
 
         url = reverse("task-detail", args=[own_task.id])
@@ -109,6 +117,20 @@ class TasksApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         own_task.refresh_from_db()
         self.assertEqual(own_task.title, "Updated task")
+        self.assertEqual(own_task.embedding_status, EmbeddingStatus.PENDING)
+        mocked_delay.assert_called_once_with(own_task.id)
+
+    @patch("tasks.services.generate_task_embedding.delay")
+    def test_task_patch_non_text_fields_does_not_enqueue_embedding(self, mocked_delay):
+        own_task = Task.objects.filter(user=self.user).first()
+
+        url = reverse("task-detail", args=[own_task.id])
+        response = self.client.patch(url, {"completed": True}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        own_task.refresh_from_db()
+        self.assertTrue(own_task.completed)
+        mocked_delay.assert_not_called()
 
     def test_category_create_creates_for_current_user(self):
         url = reverse("category-list")
@@ -175,3 +197,98 @@ class TasksApiTests(APITestCase):
 
         response = self.client.delete(url)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class TaskEmbeddingsTaskTests(APITestCase):
+    def setUp(self):
+        self.user = CustomUser.objects.create_user(
+            email="embeddings@example.com",
+            name="Embeddings User",
+            password="password123",
+            google_id="google-embeddings-1",
+        )
+        self.calendar = UserCalendar.objects.create(
+            user=self.user,
+            google_calendar_id="embeddings-cal-id",
+            summary="Embeddings",
+            selected=True,
+            owner=True,
+            primary=True,
+        )
+
+    @patch("tasks.tasks.EmbeddingsModelProvider.encode")
+    def test_generate_task_embedding_updates_task_embedding_field(self, mocked_encode):
+        mocked_encode.return_value = [0.0] * 1024
+        task = Task.objects.create(
+            user=self.user,
+            title="Read chapter",
+            notes="About Celery integration",
+            calendar=self.calendar,
+        )
+
+        result = generate_task_embedding(task.id)
+
+        self.assertTrue(result)
+        task.refresh_from_db()
+        self.assertIsNotNone(task.embedding)
+        self.assertEqual(len(task.embedding), 1024)
+        mocked_encode.assert_called_once()
+
+    def test_generate_task_embedding_returns_false_when_task_missing(self):
+        result = generate_task_embedding(999999)
+        self.assertFalse(result)
+
+    @patch("tasks.tasks.EmbeddingsModelProvider.encode")
+    def test_generate_task_embedding_sets_failed_status_on_empty_embedding(self, mocked_encode):
+        mocked_encode.return_value = []
+        task = Task.objects.create(
+            user=self.user,
+            title="Task with failed embedding",
+            notes="",
+            calendar=self.calendar,
+        )
+
+        result = generate_task_embedding(task.id)
+
+        self.assertFalse(result)
+        task.refresh_from_db()
+        self.assertEqual(task.embedding_status, EmbeddingStatus.FAILED)
+
+
+@override_settings(
+    CELERY_TASK_ALWAYS_EAGER=True,
+    CELERY_TASK_EAGER_PROPAGATES=True,
+)
+class TaskEmbeddingsEagerIntegrationTests(APITestCase):
+    def setUp(self):
+        self.user = CustomUser.objects.create_user(
+            email="eager@example.com",
+            name="Eager User",
+            password="password123",
+            google_id="google-eager-1",
+        )
+        self.calendar = UserCalendar.objects.create(
+            user=self.user,
+            google_calendar_id="eager-cal-id",
+            summary="Eager",
+            selected=True,
+            owner=True,
+            primary=True,
+        )
+        self.client.force_authenticate(self.user)
+
+    @patch("tasks.tasks.EmbeddingsModelProvider.encode")
+    def test_create_task_runs_celery_job_and_persists_embedding(self, mocked_encode):
+        mocked_encode.return_value = [0.2] * 1024
+
+        response = self.client.post(
+            reverse("task-list"),
+            {"title": "Eager task", "notes": "integration smoke test"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        created_task = Task.objects.get(id=response.data["id"])
+        self.assertIsNotNone(created_task.embedding)
+        self.assertEqual(len(created_task.embedding), 1024)
+        self.assertEqual(created_task.embedding_status, EmbeddingStatus.COMPLETED)

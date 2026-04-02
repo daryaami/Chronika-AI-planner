@@ -75,6 +75,7 @@ class EventEndpointsTests(APITestCase):
         self.assertEqual(response.data[0]["id"], "evt-selected-in-range")
         mocked_get_all_events.assert_not_called()
 
+    @patch("events.services.generate_event_embedding.delay")
     @patch(
         "events.services.GoogleCalendarService.get_all_events",
         return_value=[
@@ -90,7 +91,7 @@ class EventEndpointsTests(APITestCase):
             }
         ],
     )
-    def test_sync_endpoint_syncs_then_returns_events_from_db(self, mocked_get_all_events):
+    def test_sync_endpoint_syncs_then_returns_events_from_db(self, mocked_get_all_events, mocked_delay):
         payload = mocked_get_all_events.return_value
         payload[0]["user_calendar_id"] = self.selected_calendar.id
 
@@ -102,9 +103,11 @@ class EventEndpointsTests(APITestCase):
         self.assertEqual(response.data[0]["id"], "google-new-event")
         self.assertTrue(Event.objects.filter(google_event_id="google-new-event").exists())
         mocked_get_all_events.assert_called_once()
+        self.assertTrue(mocked_delay.called)
 
+    @patch("events.services.generate_event_embedding.delay")
     @patch("events.services.GoogleCalendarService.get_all_events", return_value=[])
-    def test_sync_endpoint_deletes_missing_events_only_in_range(self, _):
+    def test_sync_endpoint_deletes_missing_events_only_in_range(self, _, mocked_delay):
         Event.objects.create(
             user_calendar=self.selected_calendar,
             google_event_id="in-range-event",
@@ -126,6 +129,7 @@ class EventEndpointsTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertFalse(Event.objects.filter(google_event_id="in-range-event").exists())
         self.assertTrue(Event.objects.filter(google_event_id="out-range-event").exists())
+        mocked_delay.assert_not_called()
 
     @patch("events.services.GoogleCalendarService.get_events_from_calendar")
     @patch("events.services.GoogleCalendarService._get_credentials")
@@ -199,8 +203,9 @@ class EventEndpointsTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mocked_create.assert_called_once_with(self.user)
 
+    @patch("events.services.generate_event_embedding.delay")
     @patch("events.apis.GoogleCalendarService.create_event")
-    def test_create_event_endpoint_saves_event_in_db(self, mocked_create_event):
+    def test_create_event_endpoint_saves_event_in_db(self, mocked_create_event, mocked_delay):
         mocked_create_event.return_value = {
             "id": "created-evt-1",
             "summary": "Created event",
@@ -224,10 +229,13 @@ class EventEndpointsTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertTrue(Event.objects.filter(google_event_id="created-evt-1").exists())
+        created = Event.objects.get(google_event_id="created-evt-1")
+        self.assertEqual(created.embedding_status, "PENDING")
+        mocked_delay.assert_called_once_with(created.id)
 
+    @patch("events.services.generate_event_embedding.delay")
     @patch("events.apis.GoogleCalendarService.update_event")
-    def test_update_event_endpoint_updates_local_event(self, mocked_update_event):
+    def test_update_event_endpoint_updates_local_event(self, mocked_update_event, mocked_delay):
         Event.objects.create(
             user_calendar=self.selected_calendar,
             google_event_id="evt-1",
@@ -260,6 +268,54 @@ class EventEndpointsTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         updated = Event.objects.get(user_calendar=self.selected_calendar, google_event_id="evt-1")
         self.assertEqual(updated.summary, "Updated")
+        self.assertEqual(updated.embedding_status, "PENDING")
+        mocked_delay.assert_called_once_with(updated.id)
+
+    @patch("events.services.generate_event_embedding.delay")
+    @patch("events.apis.GoogleCalendarService.update_event")
+    def test_update_event_endpoint_does_not_enqueue_when_only_non_text_fields_change(
+        self,
+        mocked_update_event,
+        mocked_delay,
+    ):
+        Event.objects.create(
+            user_calendar=self.selected_calendar,
+            google_event_id="evt-no-text-change",
+            summary="Same summary",
+            description="Same description",
+            start=self._aware_dt(2026, 3, 20),
+            end=self._aware_dt(2026, 3, 20, 11, 0),
+            embedding_status="COMPLETED",
+        )
+        mocked_update_event.return_value = {
+            "id": "evt-no-text-change",
+            "summary": "Same summary",
+            "description": "Same description",
+            "start": {"dateTime": "2026-03-20T12:00:00+00:00"},
+            "end": {"dateTime": "2026-03-20T13:00:00+00:00"},
+            "htmlLink": "https://google.com/event/evt-no-text-change",
+            "organizer": {"email": "org@example.com"},
+        }
+
+        url = reverse("calendar_events")
+        response = self.client.put(
+            url,
+            {
+                "event_id": "evt-no-text-change",
+                "user_calendar_id": self.selected_calendar.id,
+                "start": {"dateTime": "2026-03-20T12:00:00+00:00"},
+                "end": {"dateTime": "2026-03-20T13:00:00+00:00"},
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        updated = Event.objects.get(
+            user_calendar=self.selected_calendar,
+            google_event_id="evt-no-text-change",
+        )
+        self.assertEqual(updated.embedding_status, "COMPLETED")
+        mocked_delay.assert_not_called()
 
     @patch("events.apis.GoogleCalendarService.delete_event")
     def test_delete_event_endpoint_removes_local_event(self, mocked_delete_event):
@@ -284,8 +340,9 @@ class EventEndpointsTests(APITestCase):
         self.assertFalse(Event.objects.filter(google_event_id="evt-to-delete").exists())
         mocked_delete_event.assert_called_once()
 
+    @patch("events.services.generate_event_embedding.delay")
     @patch("events.apis.GoogleCalendarService.create_event")
-    def test_event_from_task_creates_related_event(self, mocked_create_event):
+    def test_event_from_task_creates_related_event(self, mocked_create_event, mocked_delay):
         task = Task.objects.create(
             user=self.user,
             title="Task title",
@@ -314,7 +371,9 @@ class EventEndpointsTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertTrue(Event.objects.filter(google_event_id="from-task-evt", task=task).exists())
+        created = Event.objects.get(google_event_id="from-task-evt", task=task)
+        self.assertEqual(created.embedding_status, "PENDING")
+        mocked_delay.assert_called_once_with(created.id)
 
     def test_get_events_requires_start_and_end(self):
         url = reverse("calendar_events")

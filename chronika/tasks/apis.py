@@ -2,6 +2,7 @@ from rest_framework import viewsets, permissions
 from django.db.models import Q
 from .models import Task, Category
 from .serializers import TaskSerializer, CategorySerializer
+from .services import enqueue_task_embedding
 
 class IsOwnerOrReadOnly(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
@@ -18,7 +19,16 @@ class TaskViewSet(viewsets.ModelViewSet):
         return Task.objects.filter(user=self.request.user)
 
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+        task = serializer.save(user=self.request.user)
+        enqueue_task_embedding(task)
+
+    def perform_update(self, serializer):
+        text_fields_changed = any(
+            field in serializer.validated_data for field in ("title", "notes")
+        )
+        task = serializer.save()
+        if text_fields_changed:
+            enqueue_task_embedding(task)
 
 
 class CategoryViewSet(viewsets.ModelViewSet):

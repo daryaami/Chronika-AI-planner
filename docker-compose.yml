@@ -20,6 +20,45 @@ services:
     volumes:
       - ./models:/app/models
       - hf_cache:/app/.hf-cache
+    depends_on:
+      - db
+      - redis
+
+  celery-worker:
+    build:
+      context: ./chronika
+    container_name: chronikaapi-celery-worker
+    env_file:
+      - ./chronika/.env.production
+    environment:
+      - DJANGO_ENV=production
+    command: celery -A chronika worker -l info
+    networks:
+      - appnet
+    volumes:
+      - ./models:/app/models
+      - hf_cache:/app/.hf-cache
+    depends_on:
+      - db
+      - redis
+
+  # celery-beat:
+  #   build:
+  #     context: ./chronika
+  #   container_name: chronikaapi-celery-beat
+  #   env_file:
+  #     - ./chronika/.env.production
+  #   environment:
+  #     - DJANGO_ENV=production
+  #   command: celery -A chronika beat -l info
+  #   networks:
+  #     - appnet
+  #   volumes:
+  #     - ./models:/app/models
+  #     - hf_cache:/app/.hf-cache
+  #   depends_on:
+  #     - db
+  #     - redis
 
   frontend:
     build:
@@ -55,9 +94,21 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    networks:
+      - appnet
+
+  redis:
+    image: redis:7-alpine
+    container_name: chronikaapi-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    command: redis-server --appendonly yes
     networks:
       - appnet
 
@@ -67,6 +118,8 @@ volumes:
   pgdata:
     driver: local
   hf_cache:
+    driver: local
+  redisdata:
     driver: local
 
 networks:

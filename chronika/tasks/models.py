@@ -1,7 +1,8 @@
 from django.db import models
 from django.conf import settings
 from django.utils.translation import gettext_lazy as _
-# from pgvector.django import VectorField
+from pgvector.django import VectorField
+from core.enums import EmbeddingStatus
 
 User = settings.AUTH_USER_MODEL
 
@@ -42,7 +43,8 @@ class Task(models.Model):
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
     notes = models.TextField(null=True, blank=True)
-    # embedding = VectorField(dimensions=1024, null=True, blank=True)
+    embedding = VectorField(dimensions=1024, null=True, blank=True)
+    embedding_status = models.CharField(max_length=10, choices=EmbeddingStatus.choices, default=EmbeddingStatus.PENDING)
 
     class Meta:
         ordering = ['-due_date', '-created']

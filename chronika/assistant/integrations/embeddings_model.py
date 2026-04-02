@@ -20,6 +20,19 @@ class EmbeddingsModelProvider:
 
     _model = None
     _lock = Lock()
+    _disabled_warning_emitted = False
+
+    @classmethod
+    def _warn_disabled_once(cls) -> None:
+        if cls._disabled_warning_emitted:
+            return
+        message = (
+            "Embeddings are disabled by EMBEDDINGS_ENABLED=false. "
+            "Returning empty embedding result."
+        )
+        logger.warning(message)
+        print(f"WARNING: {message}")
+        cls._disabled_warning_emitted = True
 
     @classmethod
     def _resolve_load_target(cls) -> tuple[str, str | None]:
@@ -38,6 +51,10 @@ class EmbeddingsModelProvider:
 
     @classmethod
     def get_model(cls):
+        if not bool(getattr(settings, "EMBEDDINGS_ENABLED", True)):
+            cls._warn_disabled_once()
+            return None
+
         if cls._model is not None:
             return cls._model
 
@@ -88,6 +105,8 @@ class EmbeddingsModelProvider:
         Encode one string or list of strings into embeddings.
         """
         model = cls.get_model()
+        if model is None:
+            return []
         try:
             return model.encode(
                 texts,

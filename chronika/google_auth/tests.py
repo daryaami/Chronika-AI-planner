@@ -1,7 +1,8 @@
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from django.core.cache import cache
+from django.conf import settings
+from django.core.cache import cache, caches
 from django.http import HttpResponse
 from django.urls import reverse
 from django.test import TestCase
@@ -132,6 +133,7 @@ class GoogleAuthApiTests(APITestCase):
 class GoogleAuthServicesTests(TestCase):
     def setUp(self):
         cache.clear()
+        caches[settings.GOOGLE_AUTH_TOKEN_CACHE_ALIAS].clear()
 
     def test_set_refresh_cookie_sets_cookie(self):
         response = HttpResponse()

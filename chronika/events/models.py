@@ -1,7 +1,8 @@
 from django.db import models
 from django.conf import settings
 from django.db.models import Q, UniqueConstraint
-# from pgvector.django import VectorField
+from pgvector.django import VectorField
+from core.enums import EmbeddingStatus
 
 User = settings.AUTH_USER_MODEL
 
@@ -74,7 +75,12 @@ class Event(models.Model):
     end = models.DateTimeField(null=True, blank=True, help_text="Дата окончания события")
     htmlLink = models.URLField(null=True, blank=True, help_text="Ссылка на событие в Google Calendar")
     organizer_email = models.EmailField(null=True, blank=True, help_text="Email организатора")
-    # embedding = VectorField(dimensions=1024, null=True, blank=True)
+    embedding = VectorField(dimensions=1024, null=True, blank=True)
+    embedding_status = models.CharField(
+        max_length=10,
+        choices=EmbeddingStatus.choices,
+        default=EmbeddingStatus.PENDING,
+    )
 
     task = models.ForeignKey(
         'tasks.Task',

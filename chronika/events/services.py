@@ -13,6 +13,8 @@ from googleapiclient.errors import HttpError
 from .serializers import GoogleCalendarEventSerializer, UserCalendarSerializer
 import logging
 from core.exceptions import CalendarCreationError, CalendarSyncError
+from core.enums import EmbeddingStatus
+from .tasks import generate_event_embedding
 
 logger = logging.getLogger(__name__)
 
@@ -202,6 +204,58 @@ class GoogleCalendarService:
 
         return start_dt, end_dt
 
+    def upsert_local_event(
+        self,
+        *,
+        user_calendar: UserCalendar,
+        event_data: dict,
+        task_id: int | None = None,
+        start_dt=None,
+        end_dt=None,
+    ) -> Event:
+        start_value = start_dt
+        end_value = end_dt
+        if start_value is None and end_value is None:
+            start_value, end_value = self._extract_event_datetimes(event_data)
+
+        organizer_email = (
+            (event_data.get("organizer") or {}).get("email")
+            or event_data.get("organizer_email")
+        )
+        incoming_summary = event_data.get("summary")
+        incoming_description = event_data.get("description")
+        existing = Event.objects.filter(
+            user_calendar=user_calendar,
+            google_event_id=event_data.get("id"),
+        ).first()
+        text_fields_changed = (
+            existing is None
+            or existing.summary != incoming_summary
+            or existing.description != incoming_description
+        )
+
+        defaults = {
+            "summary": incoming_summary,
+            "description": incoming_description,
+            "start": start_value,
+            "end": end_value,
+            "htmlLink": event_data.get("htmlLink"),
+            "organizer_email": organizer_email,
+        }
+        if text_fields_changed:
+            defaults["embedding_status"] = EmbeddingStatus.PENDING
+        if task_id:
+            defaults["task_id"] = task_id
+
+        local_event, _ = Event.objects.update_or_create(
+            user_calendar=user_calendar,
+            google_event_id=event_data.get("id"),
+            defaults=defaults,
+        )
+        if text_fields_changed:
+            generate_event_embedding.delay(local_event.id)
+        return local_event
+
     def sync_events_for_user(self, user, time_min, time_max):
         user_calendars = UserCalendar.objects.filter(user=user, selected=True)
         events_payload = self.get_all_events(user, time_min, time_max)
@@ -226,6 +280,7 @@ class GoogleCalendarService:
         seen_google_ids_by_calendar = {calendar_id: set() for calendar_id in calendar_ids}
         to_create = []
         to_update = []
+        to_reembed = []
 
         for event_data in events_payload:
             calendar_id = event_data.get("user_calendar_id")
@@ -252,17 +307,25 @@ class GoogleCalendarService:
             existing = existing_by_key.get((calendar_id, google_event_id))
             if existing:
                 changed = False
+                text_fields_changed = (
+                    existing.summary != event_values["summary"]
+                    or existing.description != event_values["description"]
+                )
                 for field, value in event_values.items():
                     if getattr(existing, field) != value:
                         setattr(existing, field, value)
                         changed = True
                 if changed:
+                    if text_fields_changed:
+                        existing.embedding_status = EmbeddingStatus.PENDING
+                        to_reembed.append(existing)
                     to_update.append(existing)
             else:
                 to_create.append(
                     Event(
                         user_calendar_id=calendar_id,
                         google_event_id=google_event_id,
+                        embedding_status=EmbeddingStatus.PENDING,
                         **event_values,
                     )
                 )
@@ -273,7 +336,7 @@ class GoogleCalendarService:
             if to_update:
                 Event.objects.bulk_update(
                     to_update,
-                    ["summary", "description", "start", "end", "htmlLink", "organizer_email"],
+                    ["summary", "description", "start", "end", "htmlLink", "organizer_email", "embedding_status"],
                 )
 
             # Remove local duplicates that no longer exist in Google for selected calendars
@@ -293,6 +356,11 @@ class GoogleCalendarService:
                         start__gte=sync_start,
                         start__lte=sync_end,
                     ).delete()
+
+        for event in to_create:
+            generate_event_embedding.delay(event.id)
+        for event in to_reembed:
+            generate_event_embedding.delay(event.id)
 
         return events_payload
 
