@@ -9,6 +9,34 @@ from rest_framework.test import APITestCase
 from events.models import Event, UserCalendar
 from events.services import GoogleCalendarService
 from core.exceptions import GoogleRefreshTokenError
+
+
+def _recreate_user_calendars_after_sync(user):
+    """Имитация create_user_calendars после delete в update endpoint."""
+    UserCalendar.objects.create(
+        user=user,
+        google_calendar_id="selected-cal-id",
+        summary="Selected calendar",
+        selected=True,
+        owner=True,
+        primary=True,
+    )
+    UserCalendar.objects.create(
+        user=user,
+        google_calendar_id="unselected-cal-id",
+        summary="Unselected calendar",
+        selected=False,
+        owner=True,
+        primary=False,
+    )
+    UserCalendar.objects.create(
+        user=user,
+        google_calendar_id="extra-cal-id",
+        summary="Extra calendar",
+        selected=True,
+        owner=True,
+        primary=False,
+    )
 from tasks.models import Task
 from users.models import CustomUser
 
@@ -172,26 +200,38 @@ class EventEndpointsTests(APITestCase):
         url = reverse("toggle_calendar_select")
         response = self.client.post(
             url,
-            {"google_calendar_id": self.selected_calendar.google_calendar_id},
+            {"google_calendar_id": self.unselected_calendar.google_calendar_id},
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.data["selected"])
         mocked_toggle.assert_called_once_with(
-            self.user, self.selected_calendar.google_calendar_id
+            self.user, self.unselected_calendar.google_calendar_id
         )
 
-    @patch("events.apis.GoogleCalendarService.create_user_calendars")
+    def test_toggle_primary_calendar_forbidden(self):
+        url = reverse("toggle_calendar_select")
+        response = self.client.post(
+            url,
+            {"google_calendar_id": self.selected_calendar.google_calendar_id},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.selected_calendar.refresh_from_db()
+        self.assertTrue(self.selected_calendar.selected)
+
+    @patch(
+        "events.apis.GoogleCalendarService.create_user_calendars",
+        side_effect=_recreate_user_calendars_after_sync,
+    )
     def test_update_calendars_recreates_and_applies_selected_states(self, mocked_create):
         url = reverse("update_calendar")
         response = self.client.post(
             url,
             [
-                {
-                    "google_calendar_id": self.selected_calendar.google_calendar_id,
-                    "selected": False,
-                },
+                {"google_calendar_id": "extra-cal-id", "selected": False},
                 {
                     "google_calendar_id": self.unselected_calendar.google_calendar_id,
                     "selected": True,
@@ -202,6 +242,33 @@ class EventEndpointsTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mocked_create.assert_called_once_with(self.user)
+        extra = UserCalendar.objects.get(
+            user=self.user, google_calendar_id="extra-cal-id"
+        )
+        unselected = UserCalendar.objects.get(
+            user=self.user, google_calendar_id=self.unselected_calendar.google_calendar_id
+        )
+        self.assertFalse(extra.selected)
+        self.assertTrue(unselected.selected)
+
+    @patch(
+        "events.apis.GoogleCalendarService.create_user_calendars",
+        side_effect=_recreate_user_calendars_after_sync,
+    )
+    def test_update_calendars_cannot_disable_primary(self, mocked_create):
+        url = reverse("update_calendar")
+        response = self.client.post(
+            url,
+            [
+                {
+                    "google_calendar_id": self.selected_calendar.google_calendar_id,
+                    "selected": False,
+                },
+            ],
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     @patch("events.services.generate_event_embedding.delay")
     @patch("events.apis.GoogleCalendarService.create_event")

@@ -5,6 +5,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -280,6 +281,14 @@ class UpdateUserCalendarApi(APIView):
             UserCalendar.objects.filter(user=request.user).delete()
             calendar_service = GoogleCalendarService()
             calendar_service.create_user_calendars(request.user)
+
+            for gc_id, selected in selected_states.items():
+                if not selected and UserCalendar.objects.filter(
+                    user=request.user,
+                    google_calendar_id=gc_id,
+                    primary=True,
+                ).exists():
+                    raise ValidationError("Нельзя отключить основной календарь")
 
             # Применяем сохранённые состояния selected из payload
             for gc_id, selected in selected_states.items():

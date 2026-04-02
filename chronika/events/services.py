@@ -12,6 +12,8 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from .serializers import GoogleCalendarEventSerializer, UserCalendarSerializer
 import logging
+from rest_framework.exceptions import ValidationError
+
 from core.exceptions import CalendarCreationError, CalendarSyncError
 from core.enums import EmbeddingStatus
 from .tasks import generate_event_embedding
@@ -119,7 +121,7 @@ class GoogleCalendarService:
         try:
             calendar = UserCalendar.objects.get(user=user, google_calendar_id=google_calendar_id)
             if calendar.primary and calendar.selected:
-                raise CalendarSyncError("Нельзя отключить основной календарь")
+                raise ValidationError("Нельзя отключить основной календарь")
             calendar.selected = not calendar.selected
             calendar.save()
             return calendar.selected
