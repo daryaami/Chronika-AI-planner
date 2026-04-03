@@ -137,7 +137,36 @@ py manage.py test google_auth users tasks events assistant
 - `users.services.AuthService`  
   - Отдельных unit-тестов нет; используется косвенно в тестах `google_auth` через моки.
 
-## Apps without meaningful coverage
+## Assistant tests
 
-- `assistant`  
-  - В `assistant/tests.py` пока только шаблон без сценариев.
+- `assistant.tests.unit.test_intent_parser`  
+  - Покрыто:
+    - успешный разбор валидного JSON-ответа LLM в `ParsedIntentResult`;
+    - fallback в `other`, если LLM-клиент падает;
+    - fallback в `other`, если ответ не JSON;
+    - извлечение JSON из "шумного" ответа;
+    - нормализация невалидных `intent/entity_type` и некорректных структур полей;
+    - проверка `response_format={"type":"json_object"}`;
+    - разбор списка `items` с сохранением порядка.
+
+- `assistant.tests.unit.test_embeddings_model`  
+  - Покрыто:
+    - выбор источника модели (`EMBEDDINGS_MODEL_PATH` vs fallback на `EMBEDDINGS_MODEL_ID`);
+    - корректная передача параметров в `SentenceTransformer` (`device`, `trust_remote_code`, `cache_folder`);
+    - singleton-поведение провайдера (модель инициализируется один раз);
+    - ошибка при отсутствии `sentence-transformers`;
+    - `EMBEDDINGS_ENABLED=false`: модель не грузится, `encode()` возвращает пустой результат, выводится warning;
+    - проксирование аргументов `encode()` и оборачивание ошибок кодирования.
+
+- `assistant.tests.integration.test_llm_integration`  
+  - Live-интеграция с Mistral (по умолчанию пропущено).
+  - Условие запуска: `RUN_LLM_INTEGRATION=1` + `MISTRAL_API_KEY`.
+  - Покрыто: базовые русскоязычные сценарии (`create`, `reschedule`, multi-intent) с выводом сырого/нормализованного ответа.
+
+- `assistant.tests.integration.test_embeddings_semantic_similarity`  
+  - Live-интеграция эмбеддингов (по умолчанию пропущено).
+  - Условие запуска: `RUN_EMBEDDINGS_INTEGRATION=1`.
+  - Покрыто:
+    - кодирование набора задач и расчет cosine similarity matrix;
+    - проверка, что для ключевых фраз ближайшие соседи — смысловые перефразы;
+    - печать матрицы сходства в консоль для визуальной проверки.

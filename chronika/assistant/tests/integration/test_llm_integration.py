@@ -4,11 +4,11 @@ Live Mistral calls. Not run by default (cost + flakiness).
   set RUN_LLM_INTEGRATION=1
   set MISTRAL_API_KEY=...   (or load via .env as usual)
 
-  py manage.py test assistant.test_integration_llm
+  py manage.py test assistant.tests.integration.test_llm_integration
   Чтобы прогнать живой вызов:
     $env:RUN_LLM_INTEGRATION="1"
     # MISTRAL_API_KEY уже должен быть в .env / окружении
-    py manage.py test assistant.test_integration_llm
+    py manage.py test assistant.tests.integration.test_llm_integration
 """
 
 import json
