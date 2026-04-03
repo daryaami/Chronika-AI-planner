@@ -9,3 +9,5 @@ frontend/dist
 .env
 .nginx
 **/venv
+run-local.ps1
+.pytest_cache/

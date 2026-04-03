@@ -23,11 +23,12 @@ class TaskViewSet(viewsets.ModelViewSet):
         enqueue_task_embedding(task)
 
     def perform_update(self, serializer):
-        text_fields_changed = any(
-            field in serializer.validated_data for field in ("title", "notes")
-        )
+        instance = serializer.instance
+        old_title = instance.title
+        old_notes = instance.notes or ""
         task = serializer.save()
-        if text_fields_changed:
+        text_changed = task.title != old_title or (task.notes or "") != old_notes
+        if text_changed:
             enqueue_task_embedding(task)
 
 
