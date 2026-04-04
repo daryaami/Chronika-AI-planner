@@ -104,24 +104,24 @@ class EventEndpointsTests(APITestCase):
         mocked_get_all_events.assert_not_called()
 
     @patch("events.services.generate_event_embedding.delay")
-    @patch(
-        "events.services.GoogleCalendarService.get_all_events",
-        return_value=[
-            {
-                "id": "google-new-event",
-                "summary": "Synced event",
-                "description": "From Google",
-                "start": {"dateTime": "2026-03-15T10:00:00+00:00"},
-                "end": {"dateTime": "2026-03-15T11:00:00+00:00"},
-                "htmlLink": "https://google.com/event/new",
-                "organizer_email": "organizer@example.com",
-                "user_calendar_id": 0,  # replaced in test
-            }
-        ],
-    )
+    @patch("events.services.GoogleCalendarService.get_all_events")
     def test_sync_endpoint_syncs_then_returns_events_from_db(self, mocked_get_all_events, mocked_delay):
-        payload = mocked_get_all_events.return_value
-        payload[0]["user_calendar_id"] = self.selected_calendar.id
+        cal_id = self.selected_calendar.id
+        mocked_get_all_events.return_value = (
+            [
+                {
+                    "id": "google-new-event",
+                    "summary": "Synced event",
+                    "description": "From Google",
+                    "start": {"dateTime": "2026-03-15T10:00:00+00:00"},
+                    "end": {"dateTime": "2026-03-15T11:00:00+00:00"},
+                    "htmlLink": "https://google.com/event/new",
+                    "organizer_email": "organizer@example.com",
+                    "user_calendar_id": cal_id,
+                }
+            ],
+            {cal_id},
+        )
 
         url = reverse("sync_calendar_events")
         response = self.client.post(f"{url}?start=2026-03-01&end=2026-03-31")
@@ -134,8 +134,9 @@ class EventEndpointsTests(APITestCase):
         self.assertTrue(mocked_delay.called)
 
     @patch("events.services.generate_event_embedding.delay")
-    @patch("events.services.GoogleCalendarService.get_all_events", return_value=[])
-    def test_sync_endpoint_deletes_missing_events_only_in_range(self, _, mocked_delay):
+    @patch("events.services.GoogleCalendarService.get_all_events")
+    def test_sync_endpoint_deletes_missing_events_only_in_range(self, mocked_get_all_events, mocked_delay):
+        mocked_get_all_events.return_value = ([], {self.selected_calendar.id})
         Event.objects.create(
             user_calendar=self.selected_calendar,
             google_event_id="in-range-event",
@@ -159,6 +160,28 @@ class EventEndpointsTests(APITestCase):
         self.assertTrue(Event.objects.filter(google_event_id="out-range-event").exists())
         mocked_delay.assert_not_called()
 
+    @patch("events.services.generate_event_embedding.delay")
+    @patch("events.services.GoogleCalendarService.get_all_events")
+    def test_sync_preserves_local_when_google_fetch_failed_for_calendar(
+        self, mocked_get_all_events, mocked_delay
+    ):
+        """Пустой ответ без успешных календарей — не удаляем локальные копии (ошибка ≠ пустой календарь)."""
+        Event.objects.create(
+            user_calendar=self.selected_calendar,
+            google_event_id="keep-after-api-failure",
+            summary="Local",
+            start=self._aware_dt(2026, 3, 12),
+            end=self._aware_dt(2026, 3, 12, 13, 0),
+        )
+        mocked_get_all_events.return_value = ([], set())
+
+        url = reverse("sync_calendar_events")
+        response = self.client.post(f"{url}?start=2026-03-01&end=2026-03-31")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(Event.objects.filter(google_event_id="keep-after-api-failure").exists())
+        mocked_delay.assert_not_called()
+
     @patch("events.services.GoogleCalendarService.get_events_from_calendar")
     @patch("events.services.GoogleCalendarService._get_credentials")
     def test_get_all_events_preserves_organizer_email_from_google_payload(
@@ -178,7 +201,7 @@ class EventEndpointsTests(APITestCase):
         }
 
         service = GoogleCalendarService()
-        events = service.get_all_events(
+        events, fetched_ids = service.get_all_events(
             self.user,
             "2026-03-01T00:00:00+00:00",
             "2026-03-31T23:59:59+00:00",
@@ -187,6 +210,7 @@ class EventEndpointsTests(APITestCase):
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0]["organizer_email"], "owner@example.com")
         self.assertEqual(events[0]["user_calendar_id"], self.selected_calendar.id)
+        self.assertEqual(fetched_ids, {self.selected_calendar.id})
 
     def test_get_calendars_returns_user_calendars(self):
         url = reverse("google_calendars_list")

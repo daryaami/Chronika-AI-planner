@@ -157,14 +157,19 @@ class GoogleCalendarService:
     def get_all_events(self, user, time_min, time_max):
         """
         Получает события для всех выбранных календарей пользователя.
-        Возвращает список событий, где каждое событие дополнено информацией о календаре.
+        Возвращает (список событий, id календарей UserCalendar, для которых ответ Google получен успешно).
+
+        Для календарей с ошибкой API id не попадает во второй компонент — чтобы синхронизация
+        не удаляла локальные события.
         """
         user_calendars = UserCalendar.objects.filter(user=user, selected=True)
         events_list = []
+        fetched_calendar_ids: set[int] = set()
         credentials = self._get_credentials(user)
         for calendar in user_calendars:
             try:
                 calendar_events = self.get_events_from_calendar(calendar, credentials, time_min, time_max)
+                fetched_calendar_ids.add(calendar.id)
                 raw_events = calendar_events.get("items", [])
                 for event in raw_events:
                     event['user_calendar_id'] = calendar.id
@@ -177,7 +182,7 @@ class GoogleCalendarService:
             except Exception as e:
                 logger.error("Failed to get events from calendar %s: %s", calendar.google_calendar_id, str(e))
 
-        return events_list
+        return events_list, fetched_calendar_ids
 
     def _extract_event_datetimes(self, event_data):
         start_payload = event_data.get("start") or {}
@@ -260,7 +265,7 @@ class GoogleCalendarService:
 
     def sync_events_for_user(self, user, time_min, time_max):
         user_calendars = UserCalendar.objects.filter(user=user, selected=True)
-        events_payload = self.get_all_events(user, time_min, time_max)
+        events_payload, fetched_calendar_ids = self.get_all_events(user, time_min, time_max)
         sync_start = parse_datetime(time_min)
         sync_end = parse_datetime(time_max)
 
@@ -341,8 +346,11 @@ class GoogleCalendarService:
                     ["summary", "description", "start", "end", "htmlLink", "organizer_email", "embedding_status"],
                 )
 
-            # Remove local duplicates that no longer exist in Google for selected calendars
+            # Удаляем только то, что точно отсутствует в успешно полученном снимке Google
+            # (при ошибке API для календаря fetched_calendar_ids его не содержит — локальные события сохраняем)
             for calendar_id in calendar_ids:
+                if calendar_id not in fetched_calendar_ids:
+                    continue
                 seen_google_ids = seen_google_ids_by_calendar.get(calendar_id, set())
                 if seen_google_ids:
                     Event.objects.filter(
