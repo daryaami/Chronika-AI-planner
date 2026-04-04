@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import {getMonthStartDates, formatDate} from '@/components/js/time-utils'
 import { BASE_API_URL } from '@/config'
 import { useAuthStore } from './auth'
+import { useToastStore } from './toast'
 import { ref } from 'vue'
 import type { EventInput } from '@fullcalendar/core'
 import {useTasksStore} from "@/store/tasks";
@@ -9,9 +10,11 @@ import {useTasksStore} from "@/store/tasks";
 export const useEventsStore = defineStore('events', () => {
   const events = ref([] as Array<EventInput>)
   let fetchedKeys = [] as Array<string>
+  const isSyncing = ref(false)
 
   const authStore = useAuthStore()
   const taskStore = useTasksStore()
+  const toastStore = useToastStore()
 
   const adaptEventToFullCalendar = (event: any): EventInput => {
     return {
@@ -49,7 +52,63 @@ export const useEventsStore = defineStore('events', () => {
     return response
   }
 
+  // Синхронизация с Google Calendar
+  const syncWithGoogle = async (startDate: Date, endDate: Date, monthsToFetch: string[]) => {
+    // Если уже синхронизируем - не запускаем ещё раз
+    if (isSyncing.value) return
+
+    // Нет новых месяцев - не синхронизируем
+    if (monthsToFetch.length === 0) return
+
+    isSyncing.value = true
+
+    const syncToastId = toastStore.addToast('Syncing with Google Calendar 🔄', 0)
+
+    try {
+      const response = await fetch(
+        `${BASE_API_URL}/events/sync/?start=${formatDate(startDate)}&end=${formatDate(endDate)}`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Authorization': `JWT ${authStore.getAccessToken()}`
+          }
+        }
+      )
+
+      toastStore.removeToast(syncToastId)
+
+      if (!response.ok) {
+        toastStore.addToast('Failed to sync 😞', 4000)
+      } else {
+        const data = await response.json()
+
+        for (const event of data) {
+          const index = events.value.findIndex(e => e.id === event.id)
+
+          if (index !== -1) {
+            events.value[index] = adaptEventToFullCalendar(event)
+          } else {
+            events.value.push(adaptEventToFullCalendar(event))
+          }
+        }
+      }
+    } catch (error) {
+      toastStore.removeToast(syncToastId)
+      toastStore.addToast('Failed to sync 😞', 4000)
+      console.error('Sync error:', error)
+    } finally {
+      isSyncing.value = false
+    }
+  }
+
   const getEvents = async (startDate: Date, endDate: Date) => {
+    // Определяем какие месяцы нужно загрузить ДО запроса
+    console.log(startDate, endDate)
+
+    const monthsToFetch = getMonthStartDates(startDate, endDate)
+      .filter(monthStart => !fetchedKeys.includes(monthStart))
+
     const result = await fetchEvents(startDate, endDate)
     const data: EventInput[] = await result.json()
 
@@ -59,6 +118,9 @@ export const useEventsStore = defineStore('events', () => {
         events.value.push(adaptEventToFullCalendar(event))
       }
     }
+
+    // Синхронизируем с Google после загрузки новых месяцев
+    syncWithGoogle(startDate, endDate, monthsToFetch)
 
     return events.value
   }
