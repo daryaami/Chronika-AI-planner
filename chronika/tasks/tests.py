@@ -1,5 +1,6 @@
 from django.test import override_settings
 from django.urls import reverse
+from django.utils import timezone
 from unittest.mock import patch
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -130,6 +131,41 @@ class TasksApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         own_task.refresh_from_db()
         self.assertTrue(own_task.completed)
+        mocked_delay.assert_not_called()
+
+    @patch("tasks.services.generate_task_embedding.delay")
+    def test_task_patch_priority_does_not_enqueue_embedding(self, mocked_delay):
+        own_task = Task.objects.filter(user=self.user).first()
+
+        url = reverse("task-detail", args=[own_task.id])
+        response = self.client.patch(url, {"priority": "HIGH"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mocked_delay.assert_not_called()
+
+    @patch("tasks.services.generate_task_embedding.delay")
+    def test_task_patch_due_date_does_not_enqueue_embedding(self, mocked_delay):
+        own_task = Task.objects.filter(user=self.user).first()
+        due = timezone.now()
+
+        url = reverse("task-detail", args=[own_task.id])
+        response = self.client.patch(url, {"due_date": due.isoformat()}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mocked_delay.assert_not_called()
+
+    @patch("tasks.services.generate_task_embedding.delay")
+    def test_task_patch_echoing_title_and_notes_does_not_enqueue_embedding(self, mocked_delay):
+        own_task = Task.objects.filter(user=self.user).first()
+
+        url = reverse("task-detail", args=[own_task.id])
+        response = self.client.patch(
+            url,
+            {"title": own_task.title, "notes": own_task.notes, "priority": "LOW"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         mocked_delay.assert_not_called()
 
     def test_category_create_creates_for_current_user(self):
