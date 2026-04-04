@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import FullCalendar from '@fullcalendar/vue3'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin, {EventDragStopArg} from '@fullcalendar/interaction';
@@ -74,11 +74,20 @@ const calendarOptions: CalendarOptions = {
   eventResizableFromStart: true,
   datesSet: async (dateInfo) => {
     currentDate.value = dateInfo.start
-    isLoading.value = true;
-    const events = await eventsStore.getEvents(getStartOfMonth(currentDate.value), getEndOfMonth(currentDate.value));
-    calendarApi.value?.removeAllEventSources();
-    calendarApi.value?.addEventSource(events);
-    isLoading.value = false;
+    isLoading.value = true
+
+    const nextMonth = new Date(currentDate.value)
+    nextMonth.setMonth(nextMonth.getMonth() + 1)
+
+    const prevMonth = new Date(currentDate.value)
+    prevMonth.setMonth(prevMonth.getMonth() - 1)
+
+    await eventsStore.getEvents(
+      getStartOfMonth(prevMonth),
+      getEndOfMonth(nextMonth)  
+    )
+
+    isLoading.value = false
   },
   eventResize: updateEventTimeFromCalendar,
   eventDrop: updateEventTimeFromCalendar,
@@ -90,22 +99,41 @@ const calendarOptions: CalendarOptions = {
 }
 
 onMounted(async () => {
-  if (calendarInstance.value) {
-    calendarApi.value = calendarInstance.value.getApi();
-    currentDate.value = calendarApi.value.getDate();
+  if (!calendarInstance.value) return
 
-    const nextMonth = new Date(currentDate.value);
-    nextMonth.setMonth(nextMonth.getMonth() + 1);
+  calendarApi.value = calendarInstance.value.getApi()
+  currentDate.value = calendarApi.value.getDate()
+})
 
-    const prevMonth = new Date(currentDate.value);
-    prevMonth.setMonth(prevMonth.getMonth() - 1);
+watch(
+  () => eventsStore.events,
+  (newEvents) => {
+    if (!calendarApi.value) return
 
-    const events = await eventsStore.getEvents(getStartOfMonth(prevMonth), getEndOfMonth(nextMonth));
-    calendarApi.value.removeAllEventSources();
-    calendarApi.value.addEventSource(events);
-    isLoading.value = false;
-  }
-});
+    const calendarEvents = calendarApi.value.getEvents()
+    const map = new Map(newEvents.map(e => [e.id, e]))
+
+    // ❌ удалить лишние
+    for (const ev of calendarEvents) {
+      if (!map.has(ev.id)) {
+        ev.remove()
+      }
+    }
+
+    // ➕ добавить или обновить
+    for (const e of newEvents) {
+      const existing = calendarApi.value.getEventById(e.id)
+
+      if (existing) {
+        existing.setDates(e.start as string, e.end as string)
+        existing.setProp('title', e.title || '')
+      } else {
+        calendarApi.value.addEvent(e)
+      }
+    }
+  },
+  { deep: true }
+)
 </script>
 
 <template>

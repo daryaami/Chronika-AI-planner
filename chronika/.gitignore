@@ -3,3 +3,4 @@
 token.json
 db.sqlite3
 logs/django.log
+.hf-cache/
