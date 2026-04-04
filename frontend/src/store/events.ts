@@ -104,7 +104,6 @@ export const useEventsStore = defineStore('events', () => {
 
   const getEvents = async (startDate: Date, endDate: Date) => {
     // Определяем какие месяцы нужно загрузить ДО запроса
-    console.log(startDate, endDate)
 
     const monthsToFetch = getMonthStartDates(startDate, endDate)
       .filter(monthStart => !fetchedKeys.includes(monthStart))

@@ -45,6 +45,32 @@ const eventClickHandler = (info: EventClickArg) => {
   selectedEvent.value = info.event
 }
 
+const syncCalendarEvents = (newEvents: EventInput[]) => {
+  if (!calendarApi.value) return
+
+  const calendarEvents = calendarApi.value.getEvents()
+  const map = new Map(newEvents.map(e => [e.id, e]))
+
+  // ❌ удалить лишние
+  for (const ev of calendarEvents) {
+    if (!map.has(ev.id)) {
+      ev.remove()
+    }
+  }
+
+  // ➕ добавить или обновить
+  for (const e of newEvents) {
+    const existing = calendarApi.value.getEventById(e.id)
+
+    if (existing) {
+      existing.setDates(e.start as string, e.end as string)
+      existing.setProp('title', e.title || '')
+    } else {
+      calendarApi.value.addEvent(e)
+    }
+  }
+}
+
 
 const calendarOptions: CalendarOptions = {
   plugins: [timeGridPlugin, interactionPlugin],
@@ -84,7 +110,7 @@ const calendarOptions: CalendarOptions = {
 
     await eventsStore.getEvents(
       getStartOfMonth(prevMonth),
-      getEndOfMonth(nextMonth)  
+      getEndOfMonth(nextMonth)
     )
 
     isLoading.value = false
@@ -103,34 +129,16 @@ onMounted(async () => {
 
   calendarApi.value = calendarInstance.value.getApi()
   currentDate.value = calendarApi.value.getDate()
+
+  if (eventsStore.events.length && calendarApi.value.getEvents().length === 0) {
+    syncCalendarEvents(eventsStore.events)
+  }
 })
 
 watch(
   () => eventsStore.events,
   (newEvents) => {
-    if (!calendarApi.value) return
-
-    const calendarEvents = calendarApi.value.getEvents()
-    const map = new Map(newEvents.map(e => [e.id, e]))
-
-    // ❌ удалить лишние
-    for (const ev of calendarEvents) {
-      if (!map.has(ev.id)) {
-        ev.remove()
-      }
-    }
-
-    // ➕ добавить или обновить
-    for (const e of newEvents) {
-      const existing = calendarApi.value.getEventById(e.id)
-
-      if (existing) {
-        existing.setDates(e.start as string, e.end as string)
-        existing.setProp('title', e.title || '')
-      } else {
-        calendarApi.value.addEvent(e)
-      }
-    }
+    syncCalendarEvents(newEvents)
   },
   { deep: true }
 )
