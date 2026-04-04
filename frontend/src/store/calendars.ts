@@ -2,10 +2,12 @@ import {ref} from "vue";
 import {useAuthStore} from "@/store/auth";
 import {BASE_API_URL} from "@/config";
 import {Calendar} from "@/types/calendar";
+import { useToastStore } from "./toast";
 
 export const useCalendarsStore = () => {
   const calendars = ref<Calendar[]>([])
   const authStore = useAuthStore();
+  const toastStore = useToastStore();
 
   const fetchCalendars = async () => {
 
@@ -19,7 +21,12 @@ export const useCalendarsStore = () => {
       })
 
     const response = await authStore.ensureAuthorizedRequest(fetchFn)
-    calendars.value = await response.json()
+
+    if (response.ok) {
+      calendars.value = await response.json()
+    } else {
+      toastStore.addToast('Failed to load calendars 😞', 3000)
+    }
   }
 
   const getCalendars = async () => {
