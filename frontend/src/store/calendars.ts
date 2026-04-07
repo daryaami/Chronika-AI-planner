@@ -45,7 +45,8 @@ export const useCalendarsStore = () => {
         method: 'POST',
         credentials: 'include',
         headers: {
-          'Authorization': `JWT ${authStore.getAccessToken()}`
+          'Authorization': `JWT ${authStore.getAccessToken()}`,
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify(payload)
       })
