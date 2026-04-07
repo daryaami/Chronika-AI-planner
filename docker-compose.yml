@@ -1,6 +1,4 @@
 # # docker-compose.yml
-version: "3.9"
-
 services:
   backend:
     build:
@@ -10,10 +8,57 @@ services:
       - ./chronika/.env.production
     environment:
       - DJANGO_ENV=production
+      - EMBEDDINGS_MODEL_ID=BAAI/bge-m3
+      - EMBEDDINGS_MODEL_PATH=/app/models/embeddings/bge-m3
+      - EMBEDDINGS_CACHE_DIR=/app/.hf-cache
+      - EMBEDDINGS_DEVICE=cpu
+      - EMBEDDINGS_TRUST_REMOTE_CODE=false
     expose:
       - "8000"
     networks:
       - appnet
+    volumes:
+      - ./models:/app/models
+      - hf_cache:/app/.hf-cache
+    depends_on:
+      - db
+      - redis
+
+  celery-worker:
+    build:
+      context: ./chronika
+    container_name: chronikaapi-celery-worker
+    env_file:
+      - ./chronika/.env.production
+    environment:
+      - DJANGO_ENV=production
+    command: celery -A chronika worker -l info
+    networks:
+      - appnet
+    volumes:
+      - ./models:/app/models
+      - hf_cache:/app/.hf-cache
+    depends_on:
+      - db
+      - redis
+
+  # celery-beat:
+  #   build:
+  #     context: ./chronika
+  #   container_name: chronikaapi-celery-beat
+  #   env_file:
+  #     - ./chronika/.env.production
+  #   environment:
+  #     - DJANGO_ENV=production
+  #   command: celery -A chronika beat -l info
+  #   networks:
+  #     - appnet
+  #   volumes:
+  #     - ./models:/app/models
+  #     - hf_cache:/app/.hf-cache
+  #   depends_on:
+  #     - db
+  #     - redis
 
   frontend:
     build:
@@ -40,8 +85,41 @@ services:
     networks:
       - appnet
 
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: chronikaapi-db
+    restart: always
+    environment:
+      POSTGRES_DB: chronika
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - appnet
+
+  redis:
+    image: redis:7-alpine
+    container_name: chronikaapi-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    command: redis-server --appendonly yes
+    networks:
+      - appnet
+
 volumes:
   frontend_dist:
+    driver: local
+  pgdata:
+    driver: local
+  hf_cache:
+    driver: local
+  redisdata:
     driver: local
 
 networks:

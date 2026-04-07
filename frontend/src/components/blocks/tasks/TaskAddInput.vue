@@ -32,7 +32,7 @@ const activateFocus = () => {
 // Form fields (value-based)
 // ----------------------------
 const title = ref<string>("");
-const priority = ref<TaskPriority | null>(null);
+const priority = ref<TaskPriority | null>("NONE");
 const category = ref<string | null>(null);
 const dueDate = ref<Date | null>(null);
 
@@ -87,7 +87,7 @@ const submitHandler = async () => {
 
 const resetForm = () => {
   title.value = "";
-  priority.value = null;
+  priority.value = "NONE";
   category.value = null;
   dueDate.value = null;
 };

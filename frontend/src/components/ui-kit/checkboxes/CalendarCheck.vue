@@ -11,7 +11,7 @@ defineProps<Props>()
 <template>
   <label class="calendar-check">
     <span class="calendar-check__color" :style="`background-color: ${calendar.background_color}`"></span>
-    <input type="checkbox" class="calendar-check__input" v-model="calendar.selected">
+    <input type="checkbox" class="calendar-check__input" v-model="calendar.selected" :disabled="calendar.primary">
     <span class="calendar-check__title">{{ calendar.summary }}</span>
     <svg class="calendar-check__icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
       <use data-checked href="#checkbox-check"></use>
@@ -31,8 +31,16 @@ defineProps<Props>()
   border-radius: 4px;
   cursor: pointer;
 
+  &:has(:disabled) {
+    color: var(--text-primary-disabled);
+    order: -1;
+    cursor: default;
+  }
+
   @include hover {
-    background-color: var(--bg-secondary);
+    &:not(:has(:disabled)) {
+      background-color: var(--bg-secondary);
+    }
   }
 
   & [data-checked] {

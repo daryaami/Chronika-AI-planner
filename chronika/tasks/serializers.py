@@ -1,21 +1,31 @@
 from rest_framework import serializers
-from .models import Task, TimeLog, Category
+from .models import Task, Category
+from events.models import Event
 from events.models import UserCalendar
 from django.db.models import Q
 
 
-class TimeLogSerializer(serializers.ModelSerializer):
+class TaskEventSerializer(serializers.ModelSerializer):
+    start_time = serializers.DateTimeField(source="start", read_only=True)
+    end_time = serializers.DateTimeField(source="end", read_only=True)
+    created = serializers.DateTimeField(read_only=True)
+    updated = serializers.DateTimeField(read_only=True)
+
     class Meta:
-        model = TimeLog
+        model = Event
         fields = [
             'id',
+            'summary',
+            'description',
             'start_time',
             'end_time',
-            'created_at',
-            'updated_at',
+            'created',
+            'updated',
+            'htmlLink',
+            'organizer_email',
             'google_event_id',
         ]
-        read_only_fields = ['created_at', 'updated_at']
+        read_only_fields = ['created', 'updated']
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -25,7 +35,7 @@ class CategorySerializer(serializers.ModelSerializer):
 
 
 class TaskSerializer(serializers.ModelSerializer):
-    time_logs = TimeLogSerializer(many=True, read_only=True)
+    events = TaskEventSerializer(many=True, read_only=True)
     user_calendar_id = serializers.PrimaryKeyRelatedField(
         queryset=UserCalendar.objects.all(),
         source='calendar',
@@ -52,12 +62,12 @@ class TaskSerializer(serializers.ModelSerializer):
             'due_date',
             'user_calendar_id',
             'completed',
-            'created_at',
-            'updated_at',
-            'time_logs',
+            'created',
+            'updated',
+            'events',
             'notes',
         ]
-        read_only_fields = ['created_at', 'updated_at']
+        read_only_fields = ['created', 'updated']
 
     def create(self, validated_data):
         user = self.context['request'].user

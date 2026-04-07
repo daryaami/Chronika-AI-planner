@@ -7,10 +7,11 @@ import type { ProfileDataType } from "@/types/profile";
 import {useRouter} from "vue-router";
 
 export const useProfileStore = defineStore("userData", () => {
-  const profileData = ref<ProfileData | null>(null)
+  const profileData = ref<ProfileDataType | null>(null)
+  const authStore = useAuthStore();
+  const router = useRouter()
 
   const fetchProfileData = async (): Promise<void> => {
-    const authStore = useAuthStore();
 
     const fetchFn = () =>
       fetch(`${BASE_API_URL}/users/profile/`, {
@@ -22,7 +23,7 @@ export const useProfileStore = defineStore("userData", () => {
       })
 
     const response = await authStore.ensureAuthorizedRequest(fetchFn)
-    profileData.value = await response.json() as ProfileData
+    profileData.value = await response.json() as ProfileDataType
   }
 
   const getProfileData = async (): Promise<ProfileDataType | null> => {
@@ -42,9 +43,20 @@ export const useProfileStore = defineStore("userData", () => {
       }
     })
 
-    const router = useRouter()
-    await router.push('/login/')
+    await router.push('/login/?consent=true')
   }
 
-  return { profileData, fetchProfileData, getProfileData, deleteProfile }
+  const setUpdatedProfileData = async (payload: {name: string, time_zone: string}): Promise<void> => {
+    await fetch(`${BASE_API_URL}/users/profile/`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `JWT ${authStore.getAccessToken()}`,
+      },
+      body: JSON.stringify(payload)
+    })
+  }
+
+  return { profileData, fetchProfileData, getProfileData, deleteProfile, setUpdatedProfileData }
 })

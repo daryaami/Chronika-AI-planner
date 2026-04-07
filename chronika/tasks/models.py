@@ -1,9 +1,8 @@
 from django.db import models
 from django.conf import settings
 from django.utils.translation import gettext_lazy as _
-from zoneinfo import ZoneInfo
-
-from events.models import UserCalendar
+from pgvector.django import VectorField
+from core.enums import EmbeddingStatus
 
 User = settings.AUTH_USER_MODEL
 
@@ -39,29 +38,19 @@ class Task(models.Model):
     # TODO: поменять due date на просто дату
     due_date = models.DateTimeField(null=True, blank=True)
     duration = models.SmallIntegerField(null=True, blank=True, default=DEFAULT_DURATION)
-    calendar = models.ForeignKey(UserCalendar, on_delete=models.CASCADE, related_name='tasks')
+    calendar = models.ForeignKey('events.UserCalendar', on_delete=models.CASCADE, related_name='tasks')
     completed = models.BooleanField(default=False)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
     notes = models.TextField(null=True, blank=True)
+    embedding = VectorField(dimensions=1024, null=True, blank=True)
+    embedding_status = models.CharField(max_length=10, choices=EmbeddingStatus.choices, default=EmbeddingStatus.PENDING)
 
     class Meta:
-        ordering = ['-due_date', '-created_at']
+        ordering = ['-due_date', '-created']
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
 
     def __str__(self):
         return self.title
-
-
-class TimeLog(models.Model):
-    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='time_logs')
-    start_time = models.DateTimeField()
-    end_time = models.DateTimeField()
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    google_event_id = models.CharField(max_length=256, null=True, blank=True, help_text="ID события в Google Calendar")
-
-    def __str__(self):
-        return f"{self.task.title}: {self.start_time} - {self.end_time}"

@@ -1,8 +1,8 @@
 from rest_framework import viewsets, permissions
-from rest_framework.exceptions import PermissionDenied
 from django.db.models import Q
-from .models import Task, Category, TimeLog
-from .serializers import TaskSerializer, CategorySerializer, TimeLogSerializer
+from .models import Task, Category
+from .serializers import TaskSerializer, CategorySerializer
+from .services import enqueue_task_embedding
 
 class IsOwnerOrReadOnly(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
@@ -19,7 +19,17 @@ class TaskViewSet(viewsets.ModelViewSet):
         return Task.objects.filter(user=self.request.user)
 
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+        task = serializer.save(user=self.request.user)
+        enqueue_task_embedding(task)
+
+    def perform_update(self, serializer):
+        instance = serializer.instance
+        old_title = instance.title
+        old_notes = instance.notes or ""
+        task = serializer.save()
+        text_changed = task.title != old_title or (task.notes or "") != old_notes
+        if text_changed:
+            enqueue_task_embedding(task)
 
 
 class CategoryViewSet(viewsets.ModelViewSet):
@@ -36,20 +46,3 @@ class CategoryViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
-
-
-class TimeLogViewSet(viewsets.ModelViewSet):
-    serializer_class = TimeLogSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_queryset(self):
-        user = self.request.user
-        if not user.is_authenticated:
-            return TimeLog.objects.none()
-        return TimeLog.objects.filter(task__user=user)
-
-    def perform_create(self, serializer):
-        task = serializer.validated_data['task']
-        if task.user != self.request.user:
-            raise PermissionDenied("Вы не можете добавлять логи к чужим задачам.")
-        serializer.save()

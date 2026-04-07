@@ -1,61 +1,95 @@
 # events/api.py
-from datetime import datetime
+from datetime import datetime, time
 from django.shortcuts import get_object_or_404
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.exceptions import ValidationError
 from django.db import transaction
+from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
-from tasks.models import Task, TimeLog
+from tasks.models import Task
 from .services import GoogleCalendarService, add_event_extended_properties
 from core.exceptions import GoogleAuthError, GoogleNetworkError, GoogleRefreshTokenError
-from .models import UserCalendar
-from .serializers import EventFromTaskDeleteSerializer, EventFromTaskSerializer, GoogleCalendarEventCreateSerializer, GoogleCalendarEventDeleteSerializer, GoogleCalendarEventSerializer, GoogleCalendarEventUpdateSerializer, UserCalendarSerializer
+from .models import Event, UserCalendar
+from .serializers import EventFromTaskSerializer, EventSerializer, GoogleCalendarEventCreateSerializer, GoogleCalendarEventDeleteSerializer, GoogleCalendarEventSerializer, GoogleCalendarEventUpdateSerializer, UserCalendarSerializer
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
+
+def _parse_event_datetime(raw_value):
+    if not raw_value:
+        return None
+    parsed_dt = parse_datetime(raw_value)
+    if not parsed_dt:
+        return None
+    if timezone.is_naive(parsed_dt):
+        return timezone.make_aware(parsed_dt)
+    return parsed_dt
+
 
 class UserCalendarEventsApi(APIView):
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
-        operation_description="Получить события для активных календарей пользователя",
+        operation_description="Получить события из локальной БД для активных календарей пользователя",
         manual_parameters=[
             openapi.Parameter('start', openapi.IN_QUERY, description="Дата начала (%Y-%m-%d)", type=openapi.TYPE_STRING),
             openapi.Parameter('end', openapi.IN_QUERY, description="Дата окончания (%Y-%m-%d)", type=openapi.TYPE_STRING),
         ],
         responses={
-            200: GoogleCalendarEventSerializer(many=True),
+            200: EventSerializer(many=True),
             400: openapi.Response('Неверный формат дат или отсутствуют параметры start и end', examples={
                 'application/json': {"error": "Параметры start и end обязательны"}
             }),
             500: openapi.Response('Ошибка сервера')
         }
     )
-    def get(self, request, *args, **kwargs):
-        '''Получить события для активных календарей пользователя'''
-        start = request.query_params.get('start')
-        end = request.query_params.get('end')
+    def _get_date_range(self, request):
+        start = request.query_params.get("start")
+        end = request.query_params.get("end")
         if not start or not end:
-            return Response({"error": "Параметры start и end обязательны"}, status=status.HTTP_400_BAD_REQUEST)
-        
-        try:
-            # Преобразуем входящие даты в формат RFC3339 (ISO8601)
-            start_dt = datetime.strptime(start, "%Y-%m-%d")
-            end_dt = datetime.strptime(end, "%Y-%m-%d")
-            time_min = start_dt.isoformat() + "Z"
-            time_max = end_dt.isoformat() + "Z"
-        except ValueError:
-            return Response({"error": "Неверный формат дат. Ожидается YYYY-MM-DD"}, status=status.HTTP_400_BAD_REQUEST)
-        
-        calendar_service = GoogleCalendarService()
-        try:
-            events = calendar_service.get_all_events(request.user, time_min, time_max)
-            return Response(events, status=status.HTTP_200_OK)
+            return None, None, Response(
+                {"error": "Параметры start и end обязательны"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        except Exception as e:
-            raise e
+        try:
+            start_dt = datetime.combine(datetime.strptime(start, "%Y-%m-%d").date(), time.min)
+            end_dt = datetime.combine(datetime.strptime(end, "%Y-%m-%d").date(), time.max)
+            start_dt = timezone.make_aware(start_dt)
+            end_dt = timezone.make_aware(end_dt)
+        except ValueError:
+            return None, None, Response(
+                {"error": "Неверный формат дат. Ожидается YYYY-MM-DD"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return start_dt, end_dt, None
+
+    def _get_events_from_db(self, user, start_dt, end_dt):
+        selected_calendar_ids = UserCalendar.objects.filter(
+            user=user,
+            selected=True,
+        ).values_list("id", flat=True)
+        events_qs = Event.objects.filter(
+            user_calendar_id__in=selected_calendar_ids,
+            start__gte=start_dt,
+            start__lte=end_dt,
+        ).select_related("user_calendar")
+        return EventSerializer(events_qs, many=True).data
+
+    def get(self, request, *args, **kwargs):
+        """Получить события из локальной БД для активных календарей пользователя"""
+        start_dt, end_dt, error_response = self._get_date_range(request)
+        if error_response:
+            return error_response
+
+        return Response(
+            self._get_events_from_db(request.user, start_dt, end_dt),
+            status=status.HTTP_200_OK,
+        )
         
     @swagger_auto_schema(
         operation_description="Создать новое событие в календаре пользователя",
@@ -82,10 +116,11 @@ class UserCalendarEventsApi(APIView):
 
         calendar_service = GoogleCalendarService()
         event = calendar_service.create_event(request.user, google_calendar_id, event_data)
+        calendar_service.upsert_local_event(user_calendar=user_calendar, event_data=event)
         
         response_serializer = GoogleCalendarEventSerializer(event)
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
-    
+
     @swagger_auto_schema(
         operation_description="Обновить событие в календаре пользователя",
         request_body=GoogleCalendarEventUpdateSerializer,
@@ -115,83 +150,84 @@ class UserCalendarEventsApi(APIView):
             return Response({"error": f"Не удалось обновить событие в Google Calendar: {str(e)}"},
                             status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # Проверяем, является ли событие задачей chronika
-        extProps = event.get("extendedProperties", {}).get("private", {})
-        print(extProps)
-        if bool(extProps.get('chronika__touched', False)):
-            if int(extProps.get('chronika__object-type', 0)) == 1:
-                task_id = extProps.get('chronika__task-id', 0)
-                google_event_id = event.get('id')
-
-                try:
-                    timelog = TimeLog.objects.get(task__id=task_id, google_event_id=google_event_id)
-                except TimeLog.DoesNotExist:
-                    # Если timelog не найден — можно логировать и пропускать
-                    timelog = None
-
-                if timelog:
-                    # Получаем новые даты из события
-                    start_str = event['start'].get('dateTime') or event['start'].get('date')
-                    end_str = event['end'].get('dateTime') or event['end'].get('date')
-
-                    new_start = parse_datetime(start_str) if start_str else None
-                    new_end = parse_datetime(end_str) if end_str else None
-
-                    # Сравниваем и обновляем, если есть изменения
-                    changed = False
-                    if new_start and timelog.start_time != new_start:
-                        timelog.start_time = new_start
-                        changed = True
-                    if new_end and timelog.end_time != new_end:
-                        timelog.end_time = new_end
-                        changed = True
-
-                    if changed:
-                        timelog.save(update_fields=['start_time', 'end_time'])
+        ext_props = event.get("extendedProperties", {}).get("private", {})
+        task_id = ext_props.get("chronika__task-id")
+        calendar_service.upsert_local_event(
+            user_calendar=user_calendar,
+            event_data=event,
+            task_id=task_id,
+        )
 
         response_serializer = GoogleCalendarEventSerializer(event)
         return Response(response_serializer.data, status=status.HTTP_200_OK)
-    
+
     @swagger_auto_schema(
         operation_description="Удалить событие из календаря пользователя",
         request_body=GoogleCalendarEventDeleteSerializer,
         responses={
             204: openapi.Response('Событие успешно удалено', examples={
-                'application/json': {"success": "Событие успешно удалено", "timelog_deleted": True}
+                'application/json': {"success": "Событие успешно удалено", "event_deleted": True}
             }),
             400: openapi.Response('Ошибка в параметрах'),
         }
     )
     def delete(self, request, *args, **kwargs):
-        # user_calendar_id = request.data.get('user_calendar_id')
-        # event_id = request.data.get('event_id')
-
         serializer = GoogleCalendarEventDeleteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         user_calendar_id = serializer.validated_data["user_calendar_id"]
         event_id = serializer.validated_data["event_id"]
 
-        # Получаем объект UserCalendar по ID из базы данных
         user_calendar = get_object_or_404(UserCalendar, id=user_calendar_id, user=request.user)
         google_calendar_id = user_calendar.google_calendar_id
 
         calendar_service = GoogleCalendarService()
         calendar_service.delete_event(request.user, google_calendar_id, event_id)
 
-        # Если событие было создано из задачи — удаляем timelog
-        timelog_deleted = False
-        deleted_count, _ = TimeLog.objects.filter(
-            task__user=request.user,
-            google_event_id=event_id
+        event_deleted = False
+        deleted_count, _ = Event.objects.filter(
+            user_calendar=user_calendar,
+            google_event_id=event_id,
         ).delete()
         if deleted_count:
-            timelog_deleted = True
-        
+            event_deleted = True
+
         return Response(
-            {"success": "Событие успешно удалено", "timelog_deleted": timelog_deleted},
+            {"success": "Событие успешно удалено", "event_deleted": event_deleted},
             status=status.HTTP_204_NO_CONTENT
         )
+
+
+class SyncUserCalendarEventsApi(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_description="Синхронизировать события с Google и вернуть актуальные события из БД",
+        manual_parameters=[
+            openapi.Parameter('start', openapi.IN_QUERY, description="Дата начала (%Y-%m-%d)", type=openapi.TYPE_STRING),
+            openapi.Parameter('end', openapi.IN_QUERY, description="Дата окончания (%Y-%m-%d)", type=openapi.TYPE_STRING),
+        ],
+        responses={
+            200: EventSerializer(many=True),
+            400: openapi.Response('Неверный формат дат или отсутствуют параметры start и end'),
+            500: openapi.Response('Ошибка сервера')
+        }
+    )
+    def post(self, request, *args, **kwargs):
+        base_api = UserCalendarEventsApi()
+        start_dt, end_dt, error_response = base_api._get_date_range(request)
+        if error_response:
+            return error_response
+
+        calendar_service = GoogleCalendarService()
+        calendar_service.sync_events_for_user(
+            request.user,
+            start_dt.isoformat(),
+            end_dt.isoformat(),
+        )
+
+        events = base_api._get_events_from_db(request.user, start_dt, end_dt)
+        return Response(events, status=status.HTTP_200_OK)
 
 
 class UserCalendarListApi(APIView):
@@ -246,6 +282,14 @@ class UpdateUserCalendarApi(APIView):
             calendar_service = GoogleCalendarService()
             calendar_service.create_user_calendars(request.user)
 
+            for gc_id, selected in selected_states.items():
+                if not selected and UserCalendar.objects.filter(
+                    user=request.user,
+                    google_calendar_id=gc_id,
+                    primary=True,
+                ).exists():
+                    raise ValidationError("Нельзя отключить основной календарь")
+
             # Применяем сохранённые состояния selected из payload
             for gc_id, selected in selected_states.items():
                 UserCalendar.objects.filter(
@@ -257,7 +301,8 @@ class UpdateUserCalendarApi(APIView):
             serializer = UserCalendarSerializer(user_calendars, many=True)
             return Response(serializer.data, status=status.HTTP_200_OK)
         except Exception as e:
-            return Response({"error": "Внутренняя ошибка сервера"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            raise e
+            # return Response({"error": "Внутренняя ошибка сервера"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class ToggleUserCalendarSelectApi(APIView):
@@ -285,7 +330,7 @@ class EventFromTaskApi(APIView):
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
-        operation_description="Создать событие и timelog на основе задачи",
+        operation_description="Создать событие на основе задачи",
         manual_parameters=[
             openapi.Parameter('task_id', openapi.IN_QUERY, description="ID задачи", type=openapi.TYPE_INTEGER),
             openapi.Parameter('user_calendar_id', openapi.IN_QUERY, description="ID календаря из базы данных", type=openapi.TYPE_INTEGER),
@@ -318,7 +363,7 @@ class EventFromTaskApi(APIView):
                     "start": {"dateTime": validated["start"].isoformat()},
                     "end": {"dateTime": validated["end"].isoformat()},
                 }
-                extended_event = add_event_extended_properties(event_data, task.id) #, timelog.id)
+                extended_event = add_event_extended_properties(event_data, task.id)
 
                 # 2. Создаем событие
                 gcal_service = GoogleCalendarService()
@@ -330,12 +375,15 @@ class EventFromTaskApi(APIView):
                 )
                 calendar_event['user_calendar_id'] = user_calendar.id
 
-                # 3. Создаём timelog
-                timelog = TimeLog.objects.create(
-                    task=task,
-                    start_time=validated["start"],
-                    end_time=validated["end"],
-                    google_event_id=calendar_event["id"]
+                # 3. Сохраняем локальную запись Event, связанную с задачей
+                calendar_event["summary"] = calendar_event.get("summary") or task.title
+                calendar_event["description"] = calendar_event.get("description") or task.notes
+                gcal_service.upsert_local_event(
+                    user_calendar=user_calendar,
+                    event_data=calendar_event,
+                    task_id=task.id,
+                    start_dt=validated["start"],
+                    end_dt=validated["end"],
                 )
                 
         except Exception as e:
@@ -346,141 +394,4 @@ class EventFromTaskApi(APIView):
 
         response_serializer = GoogleCalendarEventSerializer(calendar_event)
 
-        print(response_serializer.data)
-        print(timelog)
-    
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
-
-    @swagger_auto_schema(
-        operation_description="Удалить событие и timelog на основе задачи",
-        request_body=EventFromTaskDeleteSerializer,
-        responses={
-            204: openapi.Response('Событие и timelog успешно удалены', examples={
-                'application/json': {"success": "Событие и timelog успешно удалены", "timelog_deleted": True}
-            }),
-            400: openapi.Response('Ошибка в параметрах'),
-            404: openapi.Response('Задача не найдена'),
-            500: openapi.Response('Ошибка сервера')
-        }
-    )
-    def delete(self, request, *args, **kwargs):
-        serializer = EventFromTaskDeleteSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        validated = serializer.validated_data
-
-        task = get_object_or_404(Task, id=validated['task_id'], user=request.user)
-        user_calendar = get_object_or_404(UserCalendar, id=validated['user_calendar_id'], user=request.user)
-
-        try:
-            gcal_service = GoogleCalendarService()
-            gcal_service.delete_event(
-                user=request.user,
-                google_calendar_id=user_calendar.google_calendar_id,
-                event_id=validated["event_id"]
-            )
-        except Exception as e:
-            return Response(
-                {"error": f"Не удалось удалить событие: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-        deleted_count, _ = TimeLog.objects.filter(
-            task=task,
-            google_event_id=validated["event_id"]
-        ).delete()
-
-        return Response(
-            {
-                "success": "Событие и timelog успешно удалены",
-                "timelog_deleted": bool(deleted_count)
-            },
-            status=status.HTTP_204_NO_CONTENT
-        )
-    
-    # @swagger_auto_schema(
-    #     operation_description="Обновить событие и timelog",
-    #     manual_parameters=[
-    #         openapi.Parameter('start', openapi.IN_QUERY, description="Дата начала (%Y-%m-%d)", type=openapi.TYPE_STRING),
-    #         openapi.Parameter('end', openapi.IN_QUERY, description="Дата окончания (%Y-%m-%d)", type=openapi.TYPE_STRING),
-    #     ],
-    #     responses={
-    #         200: GoogleCalendarEventSerializer(many=False),
-    #         400: openapi.Response('Неверный формат дат или отсутствуют параметры start и end', examples={
-    #             'application/json': {"error": "Параметры start и end обязательны"}
-    #         }),
-    #         404: openapi.Response('Задача не найдена'),
-    #         500: openapi.Response('Ошибка сервера')
-    #     }
-    # )
-    # def put(self, request, *args, **kwargs):
-    #     serializer = GoogleCalendarEventUpdateSerializer(data=request.data)
-    #     serializer.is_valid(raise_exception=True)
-    #     validated = serializer.validated_data
-
-    #     gcal_service = GoogleCalendarService()
-
-    #     try:
-    #         user_calendar = get_object_or_404(UserCalendar, id=validated["user_calendar_id"], user=request.user)
-    #     except Exception as e:
-    #         return Response({"error": f"Календарь не найден: {str(e)}"},
-    #                         status=status.HTTP_404_NOT_FOUND)
-
-    #     google_calendar_id = user_calendar.google_calendar_id
-
-    #     event_data = {
-    #         "start": {"dateTime": validated["start"].isoformat()},
-    #         "end": {"dateTime": validated["end"].isoformat()},
-    #     }
-    #     if validated.get("description"):
-    #         event_data["description"] = validated["description"]
-    #     if validated.get("summary"):
-    #         event_data["summary"] = validated["summary"]
-
-    #     extProps = validated.get("extendedProperties", {}).get("private", {})
-
-    #     if "chronika__touched" in extProps and extProps["chronika__touched"] == True and extProps["chronika__object-type"] == 1:
-
-    #         task = get_object_or_404(Task, id=extProps["chronika__task-id"], user=request.user)
-    #         timelog = get_object_or_404(TimeLog, id=extProps["chronika__connected-timelog-id"], task=task)
-
-    #         assert timelog.google_event_id == validated["event_id"], "event_id не совпадает с timelog.google_event_id"
-            
-    #         try:
-    #             calendar_event = gcal_service.update_event(request.user, google_calendar_id, timelog.google_event_id, event_data)
-    #         except Exception as e:
-    #             return Response({"error": f"Не удалось обновить событие в Google Calendar: {str(e)}"},
-    #                             status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-            
-    #         try:
-    #             timelog.start_time = validated["start"]
-    #             timelog.end_time = validated["end"]
-    #             timelog.save()
-    #         except Exception as e:
-    #             return Response({"error": f"Не удалось обновить timelog: {str(e)}"},
-    #                             status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    #         response_serializer = GoogleCalendarEventSerializer(calendar_event)
-
-    #         return Response(response_serializer.data, status=status.HTTP_200_OK)
-
-    #     else:
-    #         try:
-    #             calendar_event = gcal_service.update_event(request.user, google_calendar_id, validated["event_id"], event_data)
-    #         except Exception as e:
-    #             return Response({"error": f"Не удалось обновить событие в Google Calendar: {str(e)}"},
-    #                             status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-            
-    #         response_serializer = GoogleCalendarEventSerializer(calendar_event)
-
-    #         return Response(response_serializer.data, status=status.HTTP_200_OK)
-    
-    # def get(self, request, *args, **kwargs):
-    #     return Response({"error": "Метод GET не поддерживается"}, status=status.HTTP_405_METHOD_NOT_ALLOWED)
-
-    # def delete(self, request, *args, **kwargs):
-
-
-    
-
-
-

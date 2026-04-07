@@ -8,7 +8,7 @@ from typing import Any, Dict
 from urllib.parse import urlencode
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
-from django.core.cache import cache
+from django.core.cache import caches
 from oauthlib.common import UNICODE_ASCII_CHARACTER_SET
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
@@ -19,6 +19,7 @@ from google_auth.models import GoogleRefreshToken
 from users.models import CustomUser
 
 logger = logging.getLogger(__name__)
+google_auth_cache = caches[settings.GOOGLE_AUTH_TOKEN_CACHE_ALIAS]
 
 @define(kw_only=True, slots=True)
 class UserInfo:
@@ -211,7 +212,7 @@ def store_user_token(user_id: str, token: str, expires_in: int | None = 3600):
     expires = int(expires_in or 3600)
     timeout = max(expires - 60, 60)
     key = f"google_access_token_{user_id}"
-    cache.set(key, token, timeout=timeout)
+    google_auth_cache.set(key, token, timeout=timeout)
 
 
 def get_user_token(user_id: str):
@@ -219,7 +220,7 @@ def get_user_token(user_id: str):
     Получает access_token пользователя по user_id.
     """
     key = f"google_access_token_{user_id}"
-    token = cache.get(key)
+    token = google_auth_cache.get(key)
     return token
 
 

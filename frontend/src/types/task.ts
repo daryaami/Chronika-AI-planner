@@ -1,10 +1,14 @@
-export interface TimeLog {
+export interface TaskEvent {
   id: number;
+  google_event_id?: string | null;
+  summary?: string | null;
+  description?: string | null;
   start_time: string;   // ISO-строка (DateTime)
   end_time: string;     // ISO-строка (DateTime)
-  created_at: string;   // readOnly
-  updated_at: string;   // readOnly
-  google_event_id?: string | null;
+  created: string;      // readOnly
+  updated: string;      // readOnly
+  htmlLink?: string | null;
+  organizer_email?: string | null;
 }
 
 export type TaskPriority = "NONE" | "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
@@ -17,9 +21,9 @@ export interface Task {
   due_date?: string | null;  // ISO, x-nullable
   user_calendar_id: number;
   completed: boolean;
-  created_at: string;        // readOnly
-  updated_at: string;        // readOnly
-  time_logs: TimeLog[];      // readOnly
+  created: string;           // readOnly
+  updated: string;           // readOnly
+  events: TaskEvent[];       // readOnly
   el: null | HTMLElement;
   duration?: number;
   notes?: string | null;

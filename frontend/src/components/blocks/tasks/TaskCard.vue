@@ -187,10 +187,10 @@ const userCategoryIdModel = computed({
         </div>
 
         <p class="scheduled__no-events"
-           v-if="!taskCopy.time_logs.length">No upcoming events</p>
+           v-if="!taskCopy.events.length">No upcoming events</p>
 
         <div class="scheduled__time-logs" v-else>
-          <TimeLogCard v-for="timeLog in taskCopy.time_logs" :key="timeLog.id" :time-log="timeLog" />
+          <TimeLogCard v-for="timeLog in taskCopy.events" :key="timeLog.id" :time-log="timeLog" />
         </div>
 
 

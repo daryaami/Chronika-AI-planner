@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router';
 import LoginLayout from './layouts/LoginLayout.vue';
 import DefaultLayout from './layouts/DefaultLayout.vue';
 import TextLayout from './layouts/TextLayout.vue';
+import Toast from './components/ui-kit/Toast.vue';
 
 const route = useRoute();
 
@@ -21,6 +22,7 @@ const layoutComponent = computed(() => {
 <template>
   <div class="container">
     <component :is="layoutComponent" />
+    <Toast />
   </div>
 </template>
 

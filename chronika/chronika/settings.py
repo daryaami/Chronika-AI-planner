@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = BASE_DIR.parent
 
 
 DJANGO_ENV = os.getenv("DJANGO_ENV", "development")  # default локально dev
@@ -57,7 +58,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
     'drf_yasg',
-    
+    "pgvector.django",
     'core',
     'google_auth',
     'users',
@@ -84,21 +85,18 @@ CSRF_TRUSTED_ORIGINS = [
     "http://localhost",
 ]
 
-# CACHES = {
-#     'default': {
-#         'BACKEND': 'django_redis.cache.RedisCache',
-#         'LOCATION': 'redis://127.0.0.1:6379/0',
-#         'OPTIONS': {
-#             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-#         }
-#     }
-# }
+USE_REDIS_CACHE = os.getenv("USE_REDIS_CACHE", "false").lower() == "true"
+GOOGLE_AUTH_TOKEN_CACHE_ALIAS = os.getenv("GOOGLE_AUTH_TOKEN_CACHE_ALIAS", "google_auth_tokens")
 
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
         "LOCATION": "unique-cache-name",
-    }
+    },
+    GOOGLE_AUTH_TOKEN_CACHE_ALIAS: {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "google-auth-token-cache",
+    },
 }
 
 SESSION_COOKIE_SAMESITE = 'Lax'
@@ -142,14 +140,26 @@ WSGI_APPLICATION = 'chronika.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.sqlite3',
+#         'NAME': BASE_DIR / 'db.sqlite3',
+#     }
+# }
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.environ.get("DATABASE_NAME", "chronika"),
+        "USER": os.environ.get("DATABASE_USER", "postgres"),
+        "PASSWORD": os.environ.get("DATABASE_PASSWORD", "postgres"),
+        "HOST": os.environ.get("DATABASE_HOST", "127.0.0.1" if DJANGO_ENV == "development" else "chronikaapi-db"),
+        "PORT": os.environ.get("DATABASE_PORT", "5432"),
     }
 }
 
-log_directory = os.path.dirname(BASE_DIR / 'logs/django.log')
+
+log_file_path = BASE_DIR / 'logs' / 'django.log'
+log_directory = os.path.dirname(log_file_path)
 if not os.path.exists(log_directory):
     os.makedirs(log_directory)
 
@@ -175,7 +185,7 @@ LOGGING = {
         'file': {
             'level': 'ERROR',
             'class': 'logging.FileHandler',
-            'filename': 'logs/django.log',
+            'filename': str(log_file_path),
             'formatter': 'verbose',
         },
     },
@@ -277,3 +287,51 @@ GOOGLE_OAUTH2_PROJECT_ID = os.getenv('GOOGLE_OAUTH2_PROJECT_ID')
 GOOGLE_API_URI = os.getenv("GOOGLE_API_URI")
 
 # GOOGLE_API_URI = "https://chronika.nowheiscursed.space/auth/google/callback/"
+
+
+EMBEDDINGS_MODEL_ID = os.getenv("EMBEDDINGS_MODEL_ID", "BAAI/bge-m3")
+_embeddings_model_path_raw = os.getenv("EMBEDDINGS_MODEL_PATH", "").strip()
+if _embeddings_model_path_raw:
+    _embeddings_model_path = Path(_embeddings_model_path_raw).expanduser()
+    if not _embeddings_model_path.is_absolute():
+        _embeddings_model_path = (PROJECT_ROOT / _embeddings_model_path).resolve()
+    EMBEDDINGS_MODEL_PATH = str(_embeddings_model_path)
+else:
+    EMBEDDINGS_MODEL_PATH = None
+EMBEDDINGS_CACHE_DIR = os.getenv("EMBEDDINGS_CACHE_DIR", str(BASE_DIR / ".hf-cache"))
+EMBEDDINGS_DEVICE = os.getenv("EMBEDDINGS_DEVICE", "cpu")
+EMBEDDINGS_TRUST_REMOTE_CODE = os.getenv(
+    "EMBEDDINGS_TRUST_REMOTE_CODE",
+    "false",
+).lower() == "true"
+EMBEDDINGS_ENABLED = os.getenv("EMBEDDINGS_ENABLED", "true").lower() == "true"
+
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
+MISTRAL_API_BASE_URL = os.getenv("MISTRAL_API_BASE_URL", "https://api.mistral.ai")
+MISTRAL_MODEL = os.getenv("MISTRAL_MODEL", "mistral-medium-latest")
+MISTRAL_TIMEOUT_SECONDS = int(os.getenv("MISTRAL_TIMEOUT_SECONDS", "30"))
+
+# Redis connection settings (available for cache/celery integrations)
+REDIS_HOST = os.getenv("REDIS_HOST", "redis")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+REDIS_DB = int(os.getenv("REDIS_DB", "0"))
+REDIS_URL = os.getenv("REDIS_URL", f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}")
+
+# Celery
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", REDIS_URL)
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", REDIS_URL)
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = TIME_ZONE
+
+if USE_REDIS_CACHE:
+    CACHES[GOOGLE_AUTH_TOKEN_CACHE_ALIAS] = {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": REDIS_URL,
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+        },
+        "TIMEOUT": int(os.getenv("GOOGLE_AUTH_TOKEN_CACHE_TIMEOUT", "3540")),
+        "KEY_PREFIX": os.getenv("GOOGLE_AUTH_TOKEN_CACHE_PREFIX", "google_auth"),
+    }

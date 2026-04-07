@@ -1,14 +1,22 @@
 # events/services.py
 import re
 import requests
+from datetime import datetime, time
 from google_auth.services import get_user_credentials
 from core.exceptions import EventNotFoundError, GoogleNetworkError
-from .models import UserCalendar
+from django.db import transaction
+from django.utils import timezone
+from django.utils.dateparse import parse_date, parse_datetime
+from .models import Event, UserCalendar
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from .serializers import GoogleCalendarEventSerializer, UserCalendarSerializer
 import logging
+from rest_framework.exceptions import ValidationError
+
 from core.exceptions import CalendarCreationError, CalendarSyncError
+from core.enums import EmbeddingStatus
+from .tasks import generate_event_embedding
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +121,7 @@ class GoogleCalendarService:
         try:
             calendar = UserCalendar.objects.get(user=user, google_calendar_id=google_calendar_id)
             if calendar.primary and calendar.selected:
-                raise CalendarSyncError("Нельзя отключить основной календарь")
+                raise ValidationError("Нельзя отключить основной календарь")
             calendar.selected = not calendar.selected
             calendar.save()
             return calendar.selected
@@ -138,8 +146,9 @@ class GoogleCalendarService:
 
             if not response.ok:
                 raise GoogleNetworkError(f"Ошибка при получении событий: {response.status_code}")
+            payload = response.json()
 
-            return response.json()
+            return payload
         except GoogleNetworkError as e:
             raise GoogleNetworkError(f"Ошибка при получении событий из календаря {calendar.google_calendar_id}: {str(e)}")
         except Exception as e:
@@ -148,14 +157,19 @@ class GoogleCalendarService:
     def get_all_events(self, user, time_min, time_max):
         """
         Получает события для всех выбранных календарей пользователя.
-        Возвращает список событий, где каждое событие дополнено информацией о календаре.
+        Возвращает (список событий, id календарей UserCalendar, для которых ответ Google получен успешно).
+
+        Для календарей с ошибкой API id не попадает во второй компонент — чтобы синхронизация
+        не удаляла локальные события.
         """
         user_calendars = UserCalendar.objects.filter(user=user, selected=True)
         events_list = []
+        fetched_calendar_ids: set[int] = set()
         credentials = self._get_credentials(user)
         for calendar in user_calendars:
             try:
                 calendar_events = self.get_events_from_calendar(calendar, credentials, time_min, time_max)
+                fetched_calendar_ids.add(calendar.id)
                 raw_events = calendar_events.get("items", [])
                 for event in raw_events:
                     event['user_calendar_id'] = calendar.id
@@ -168,7 +182,197 @@ class GoogleCalendarService:
             except Exception as e:
                 logger.error("Failed to get events from calendar %s: %s", calendar.google_calendar_id, str(e))
 
-        return events_list
+        return events_list, fetched_calendar_ids
+
+    def _extract_event_datetimes(self, event_data):
+        start_payload = event_data.get("start") or {}
+        end_payload = event_data.get("end") or {}
+
+        start_raw = start_payload.get("dateTime") or start_payload.get("date")
+        end_raw = end_payload.get("dateTime") or end_payload.get("date")
+
+        start_dt = parse_datetime(start_raw) if start_raw else None
+        end_dt = parse_datetime(end_raw) if end_raw else None
+
+        if start_dt and timezone.is_naive(start_dt):
+            start_dt = timezone.make_aware(start_dt)
+        if end_dt and timezone.is_naive(end_dt):
+            end_dt = timezone.make_aware(end_dt)
+
+        if not start_dt and start_raw:
+            parsed_start_date = parse_date(start_raw)
+            if parsed_start_date:
+                start_dt = timezone.make_aware(datetime.combine(parsed_start_date, time.min))
+
+        if not end_dt and end_raw:
+            parsed_end_date = parse_date(end_raw)
+            if parsed_end_date:
+                end_dt = timezone.make_aware(datetime.combine(parsed_end_date, time.min))
+
+        return start_dt, end_dt
+
+    def upsert_local_event(
+        self,
+        *,
+        user_calendar: UserCalendar,
+        event_data: dict,
+        task_id: int | None = None,
+        start_dt=None,
+        end_dt=None,
+    ) -> Event:
+        start_value = start_dt
+        end_value = end_dt
+        if start_value is None and end_value is None:
+            start_value, end_value = self._extract_event_datetimes(event_data)
+
+        organizer_email = (
+            (event_data.get("organizer") or {}).get("email")
+            or event_data.get("organizer_email")
+        )
+        incoming_summary = event_data.get("summary")
+        incoming_description = event_data.get("description")
+        existing = Event.objects.filter(
+            user_calendar=user_calendar,
+            google_event_id=event_data.get("id"),
+        ).first()
+        text_fields_changed = (
+            existing is None
+            or existing.summary != incoming_summary
+            or existing.description != incoming_description
+        )
+
+        defaults = {
+            "summary": incoming_summary,
+            "description": incoming_description,
+            "start": start_value,
+            "end": end_value,
+            "htmlLink": event_data.get("htmlLink"),
+            "organizer_email": organizer_email,
+        }
+        if text_fields_changed:
+            defaults["embedding_status"] = EmbeddingStatus.PENDING
+        if task_id:
+            defaults["task_id"] = task_id
+
+        local_event, _ = Event.objects.update_or_create(
+            user_calendar=user_calendar,
+            google_event_id=event_data.get("id"),
+            defaults=defaults,
+        )
+        if text_fields_changed:
+            generate_event_embedding.delay(local_event.id)
+        return local_event
+
+    def sync_events_for_user(self, user, time_min, time_max):
+        user_calendars = UserCalendar.objects.filter(user=user, selected=True)
+        events_payload, fetched_calendar_ids = self.get_all_events(user, time_min, time_max)
+        sync_start = parse_datetime(time_min)
+        sync_end = parse_datetime(time_max)
+
+        if not user_calendars.exists():
+            return []
+
+        calendar_ids = list(user_calendars.values_list("id", flat=True))
+        existing_events = Event.objects.filter(
+            user_calendar_id__in=calendar_ids,
+            start__gte=sync_start,
+            start__lte=sync_end,
+        )
+        existing_by_key = {
+            (event.user_calendar_id, event.google_event_id): event
+            for event in existing_events
+            if event.google_event_id
+        }
+
+        seen_google_ids_by_calendar = {calendar_id: set() for calendar_id in calendar_ids}
+        to_create = []
+        to_update = []
+        to_reembed = []
+
+        for event_data in events_payload:
+            calendar_id = event_data.get("user_calendar_id")
+            google_event_id = event_data.get("id")
+            if not calendar_id or not google_event_id:
+                continue
+
+            seen_google_ids_by_calendar.setdefault(calendar_id, set()).add(google_event_id)
+            start_dt, end_dt = self._extract_event_datetimes(event_data)
+            organizer_email = (
+                event_data.get("organizer_email")
+                or (event_data.get("organizer") or {}).get("email")
+            )
+
+            event_values = {
+                "summary": event_data.get("summary"),
+                "description": event_data.get("description"),
+                "start": start_dt,
+                "end": end_dt,
+                "htmlLink": event_data.get("htmlLink"),
+                "organizer_email": organizer_email,
+            }
+
+            existing = existing_by_key.get((calendar_id, google_event_id))
+            if existing:
+                changed = False
+                text_fields_changed = (
+                    existing.summary != event_values["summary"]
+                    or existing.description != event_values["description"]
+                )
+                for field, value in event_values.items():
+                    if getattr(existing, field) != value:
+                        setattr(existing, field, value)
+                        changed = True
+                if changed:
+                    if text_fields_changed:
+                        existing.embedding_status = EmbeddingStatus.PENDING
+                        to_reembed.append(existing)
+                    to_update.append(existing)
+            else:
+                to_create.append(
+                    Event(
+                        user_calendar_id=calendar_id,
+                        google_event_id=google_event_id,
+                        embedding_status=EmbeddingStatus.PENDING,
+                        **event_values,
+                    )
+                )
+
+        with transaction.atomic():
+            if to_create:
+                Event.objects.bulk_create(to_create)
+            if to_update:
+                Event.objects.bulk_update(
+                    to_update,
+                    ["summary", "description", "start", "end", "htmlLink", "organizer_email", "embedding_status"],
+                )
+
+            # Удаляем только то, что точно отсутствует в успешно полученном снимке Google
+            # (при ошибке API для календаря fetched_calendar_ids его не содержит — локальные события сохраняем)
+            for calendar_id in calendar_ids:
+                if calendar_id not in fetched_calendar_ids:
+                    continue
+                seen_google_ids = seen_google_ids_by_calendar.get(calendar_id, set())
+                if seen_google_ids:
+                    Event.objects.filter(
+                        user_calendar_id=calendar_id,
+                        start__gte=sync_start,
+                        start__lte=sync_end,
+                    ).exclude(
+                        google_event_id__in=seen_google_ids
+                    ).delete()
+                else:
+                    Event.objects.filter(
+                        user_calendar_id=calendar_id,
+                        start__gte=sync_start,
+                        start__lte=sync_end,
+                    ).delete()
+
+        for event in to_create:
+            generate_event_embedding.delay(event.id)
+        for event in to_reembed:
+            generate_event_embedding.delay(event.id)
+
+        return events_payload
 
     def create_event(self, user, google_calendar_id, event_data):
         """
@@ -209,18 +413,17 @@ class GoogleCalendarService:
         except HttpError as e:
             raise EventNotFoundError(f"Ошибка при удалении события: {str(e)}")
 
-def add_event_extended_properties(event: dict, task_id: int | None = None, timelog_id: int | None = None):
+def add_event_extended_properties(event: dict, task_id: int | None = None):
     """
     Добавляет расширенные свойства событию.
     "chronika__object-type": 1 - задача, 0 - событие 
     """
-    if task_id: #and timelog_id:
+    if task_id:
         event['extendedProperties'] = {
             'private': {
                 "chronika__touched": True,
                 "chronika__object-type": 1,
                 "chronika__task-id": task_id,
-                # "chronika__connected-timelog-id": timelog_id,
             }
     }
     else:
@@ -267,14 +470,12 @@ def add_event_extended_properties(event: dict, task_id: int | None = None, timel
 #     },
 #     "eventType": "default",
 #     "calendar": "73ar9fhu8lu8isn2hqvvo199h8@group.calendar.google.com",
-    # "extendedProperties": {
-        # "private": {
-        #     "chronika__touched": true,
-        #     "chronika__object-type": 1,
-        #     "chronika__task-id": "42",
-        #     "chronika__connected-timelog-id": "42",
-        # },
-    
-    # }
+#     "extendedProperties": {
+#         "private": {
+#             "chronika__touched": true,
+#             "chronika__object-type": 1,
+#             "chronika__task-id": "42",
+#         },
+#     }
 
 # }

@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import UserCalendar
+from .models import Event, UserCalendar
 
 class UserCalendarSerializer(serializers.ModelSerializer):
     google_calendar_id = serializers.CharField()
@@ -24,6 +24,7 @@ class GoogleCalendarEventSerializer(serializers.Serializer):
     # Вложенные поля старт/энд будем принимать в виде словаря, а затем преобразовывать их
     start = serializers.DictField(required=False)
     end = serializers.DictField(required=False)
+    organizer = serializers.DictField(required=False, write_only=True)
     # Можно сохранять email организатора как строку (если важен только email)
     organizer_email = serializers.SerializerMethodField()
     user_calendar_id = serializers.IntegerField(required=False, help_text="ID календаря из базы данных (UserCalendar.id)")
@@ -119,13 +120,58 @@ class EventFromTaskDeleteSerializer(serializers.Serializer):
     user_calendar_id = serializers.IntegerField(required=True, help_text="ID календаря из базы данных (UserCalendar.id)")
     event_id = serializers.CharField(required=True)
 
+
+class EventSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source="google_event_id", read_only=True)
+    status = serializers.CharField(read_only=True, default="confirmed")
+    organizer_email = serializers.EmailField(required=False, allow_null=True)
+    user_calendar_id = serializers.IntegerField(read_only=True)
+    color = serializers.SerializerMethodField()
+    start = serializers.SerializerMethodField()
+    end = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Event
+        fields = [
+            "id",
+            "summary",
+            "status",
+            "htmlLink",
+            "created",
+            "updated",
+            "start",
+            "end",
+            "organizer_email",
+            "user_calendar_id",
+            "description",
+            "color",
+        ]
+
+    def get_color(self, obj):
+        return obj.user_calendar.background_color if obj.user_calendar_id else None
+
+    def _serialize_dt(self, value):
+        if not value:
+            return None
+        return {"dateTime": value.isoformat()}
+
+    def get_start(self, obj):
+        return self._serialize_dt(obj.start)
+
+    def get_end(self, obj):
+        return self._serialize_dt(obj.end)
+
+    def to_representation(self, instance):
+        payload = super().to_representation(instance)
+        payload["status"] = "confirmed"
+        return payload
+
     
 # class EventFromTaskUpdateSerializer(EventFromTaskSerializer):
 #     event_id = serializers.IntegerField(required=True)
 #     task_id = serializers.IntegerField(required=True)
-#     timelog_id = serializers.IntegerField(required=True)
 #     user_calendar_id = serializers.IntegerField(required=True)
-    
+#
 #     summary = serializers.CharField(required=False)
 #     start = serializers.DateTimeField(required=False)
 #     end = serializers.DateTimeField(required=False)

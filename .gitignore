@@ -8,3 +8,6 @@ k8s/
 compose/
 **/logs/
 venv/
+models/
+run-local.ps1
+.pytest_cache/

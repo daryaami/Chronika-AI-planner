@@ -1,17 +1,8 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from 'vue'
-import vSelect from 'vue-select'
+import VueSelect from 'vue-select'
 import 'vue-select/dist/vue-select.css'
-import { listTz, clientTz } from 'timezone-select-js'
-import IconBtn from "@/components/ui-kit/btns/IconBtn.vue";
-
-
-interface TimezoneRaw {
-  value: string
-  label: string
-  offset: string
-  included: string
-}
+import IconBtn from '@/components/ui-kit/btns/IconBtn.vue'
 
 interface TimezoneOption {
   value: string
@@ -31,13 +22,35 @@ const emit = defineEmits<{
 const options = ref<TimezoneOption[]>([])
 const selected = ref<TimezoneOption | null>(null)
 
-onMounted(() => {
-  const raw = listTz()
+/**
+ * Получить offset вида GMT+3
+ */
+function getOffset(tz: string): string {
+  const date = new Date()
 
-  options.value = raw.map((tz: TimezoneRaw) => ({
-    value: tz.value,
-    // Расширяем label — встроенный поиск будет искать по всей строке
-    label: `${tz.label} (${tz.value}) ${tz.included ?? ''}`,
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    timeZoneName: 'shortOffset'
+  }).formatToParts(date)
+
+  const offset = parts.find(p => p.type === 'timeZoneName')?.value || ''
+
+  return offset.replace('GMT', 'GMT')
+}
+
+/**
+ * Получить текущую таймзону пользователя
+ */
+function getClientTz(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone
+}
+
+onMounted(() => {
+  const zones = Intl.supportedValuesOf('timeZone')
+
+  options.value = zones.map((tz) => ({
+    value: tz,
+    label: `${getOffset(tz)} (${tz})`
   }))
 
   initializeValue()
@@ -48,7 +61,7 @@ const initializeValue = () => {
     selected.value =
       options.value.find(o => o.value === props.modelValue) ?? null
   } else {
-    const userTz = clientTz()
+    const userTz = getClientTz()
     const found = options.value.find(o => o.value === userTz)
 
     if (found) {
@@ -77,7 +90,7 @@ watch(selected, (val) => {
 </script>
 
 <template>
-  <vSelect
+  <VueSelect
     class="select"
     v-model="selected"
     :options="options"
@@ -87,7 +100,7 @@ watch(selected, (val) => {
     <template #open-indicator>
       <IconBtn icon="chevron-down" class="select__toggle" size="s" />
     </template>
-  </vSelect>
+  </VueSelect>
 </template>
 
 <style lang="scss">
@@ -103,13 +116,13 @@ watch(selected, (val) => {
   }
 }
 
-
 .vs__selected {
   position: absolute;
   width: 100%;
 
   display: -webkit-box;
   -webkit-line-clamp: 1;
+  line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
   text-overflow: ellipsis;
