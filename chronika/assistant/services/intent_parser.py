@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -98,22 +99,89 @@ class IntentParserService:
 
     def parse(self, user_text: str) -> ParsedIntentResult:
         messages = self._build_messages(user_text)
+        max_tokens = self._resolve_max_tokens(user_text)
+        input_len = len((user_text or "").strip())
+        print(
+            f"[IntentParser] start parse: input_len={input_len}, "
+            f"max_tokens={max_tokens}, messages={len(messages)}"
+        )
+
         try:
+            started_at = time.perf_counter()
             raw_response = self.llm_client.chat_with_messages(
                 messages=messages,
                 temperature=0.0,
-                max_tokens=1200,
+                max_tokens=max_tokens,
                 response_format={"type": "json_object"},
             )
+            elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+            print(
+                f"[IntentParser] primary inference done: elapsed_ms={elapsed_ms}, "
+                f"response_len={len(raw_response)}"
+            )
         except LLMClientError as exc:
+            print(f"[IntentParser] primary inference error: {exc}")
             logger.warning("Intent parser failed to call LLM: %s", exc)
             return self._fallback_result(raw_response=None)
 
         parsed = self._safe_parse_json(raw_response)
         if parsed is None:
-            return self._fallback_result(raw_response=raw_response)
+            # Retry once with a larger budget: multi-step requests can produce
+            # longer JSON and may be truncated on first attempt.
+            retry_tokens = min(max_tokens * 2, 1200)
+            print(
+                "[IntentParser] primary response JSON parse failed; "
+                f"retrying with retry_tokens={retry_tokens}"
+            )
+            try:
+                retry_started_at = time.perf_counter()
+                raw_response_retry = self.llm_client.chat_with_messages(
+                    messages=messages,
+                    temperature=0.0,
+                    max_tokens=retry_tokens,
+                    response_format={"type": "json_object"},
+                )
+                retry_elapsed_ms = int((time.perf_counter() - retry_started_at) * 1000)
+                print(
+                    f"[IntentParser] retry inference done: elapsed_ms={retry_elapsed_ms}, "
+                    f"response_len={len(raw_response_retry)}"
+                )
+            except LLMClientError as exc:
+                print(f"[IntentParser] retry inference error: {exc}")
+                logger.warning("Intent parser retry failed to call LLM: %s", exc)
+                return self._fallback_result(raw_response=raw_response)
 
-        return self._normalize_root(parsed, raw_response=raw_response)
+            parsed_retry = self._safe_parse_json(raw_response_retry)
+            if parsed_retry is None:
+                print("[IntentParser] retry JSON parse failed; fallback=intent_other")
+                return self._fallback_result(raw_response=raw_response_retry)
+            result = self._normalize_root(parsed_retry, raw_response=raw_response_retry)
+            print(
+                f"[IntentParser] retry parse success: items_count={len(result.items)}, "
+                f"raw_response_len={len(raw_response_retry)}"
+            )
+            return result
+
+        result = self._normalize_root(parsed, raw_response=raw_response)
+        print(
+            f"[IntentParser] primary parse success: items_count={len(result.items)}, "
+            f"raw_response_len={len(raw_response)}"
+        )
+        return result
+
+    @staticmethod
+    def _resolve_max_tokens(user_text: str) -> int:
+        """
+        Dynamic budget for response tokens:
+        - short inputs get a smaller cap (faster/cheaper),
+        - long inputs still get enough space for structured JSON.
+        """
+        text = (user_text or "").strip()
+        char_count = len(text)
+
+        # Rough heuristic: ~4 chars per token + baseline for JSON structure.
+        estimated_tokens = 120 + (char_count // 4)
+        return max(200, min(estimated_tokens, 700))
 
     @staticmethod
     def _now_context_for_prompt() -> str:
