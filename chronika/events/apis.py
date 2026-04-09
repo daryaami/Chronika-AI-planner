@@ -305,6 +305,24 @@ class UpdateUserCalendarApi(APIView):
             # return Response({"error": "Внутренняя ошибка сервера"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+class RefreshUserCalendarsApi(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_description="Повторно загрузить список календарей пользователя из Google и обновить БД",
+        responses={
+            200: UserCalendarSerializer(many=True),
+            500: openapi.Response('Ошибка сервера')
+        }
+    )
+    def post(self, request, *args, **kwargs):
+        calendar_service = GoogleCalendarService()
+        user_calendars = calendar_service.sync_user_calendars_safely(request.user)
+
+        serializer = UserCalendarSerializer(user_calendars, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
 class ToggleUserCalendarSelectApi(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -378,13 +396,17 @@ class EventFromTaskApi(APIView):
                 # 3. Сохраняем локальную запись Event, связанную с задачей
                 calendar_event["summary"] = calendar_event.get("summary") or task.title
                 calendar_event["description"] = calendar_event.get("description") or task.notes
-                gcal_service.upsert_local_event(
+                local_event = gcal_service.upsert_local_event(
                     user_calendar=user_calendar,
                     event_data=calendar_event,
                     task_id=task.id,
                     start_dt=validated["start"],
                     end_dt=validated["end"],
+                    enqueue_embedding=False,
                 )
+                local_event.embedding = task.embedding
+                local_event.embedding_status = task.embedding_status
+                local_event.save(update_fields=["embedding", "embedding_status"])
                 
         except Exception as e:
             return Response(

@@ -1,5 +1,3 @@
-from dataclasses import asdict
-
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
 from rest_framework import status
@@ -7,7 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from assistant.services.intent_parser import IntentParserService
+from assistant.services.chat_orchestrator import ChatOrchestratorService
 
 
 class AssistantMessageApi(APIView):
@@ -65,27 +63,17 @@ class AssistantMessageApi(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        try:
-            parsed_intent_result = IntentParserService().parse(message)
-            parsed_intent_payload = {
-                "items": [asdict(item) for item in parsed_intent_result.items],
-                # "raw_response": parsed_intent_result.raw_response,
-            }
-        except Exception as exc:
-            # Не роняем эндпоинт, если parser/LLM недоступны на этом этапе.
-            parsed_intent_payload = {
-                "items": [],
-                # "raw_response": None,
-                "error": str(exc),
-            }
+        orchestrator_result = ChatOrchestratorService().process_message(
+            user_id=user.id,
+            message=message,
+        )
 
-        # Заглушка: бизнес-логика ассистента будет добавлена позже.
         return Response(
             {
-                "message": message,
-                "assistant_reply": "",
-                "user_id": user.id,
-                "intent_parser": parsed_intent_payload,
+                "message": orchestrator_result.message,
+                "assistant_reply": orchestrator_result.assistant_reply,
+                "user_id": orchestrator_result.user_id,
+                "intent_parser": orchestrator_result.intent_parser,
             },
             status=status.HTTP_200_OK,
         )
