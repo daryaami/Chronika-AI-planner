@@ -32,19 +32,6 @@ class AssistantMessageApi(APIView):
                         "message": "",
                         "assistant_reply": "",
                         "user_id": 1,
-                        "candidates": [
-                            {
-                                "entity_type": "event",
-                                "object_id": 123,
-                                "similarity": 0.812345,
-                                "payload": {
-                                    "summary": "Встреча с командой",
-                                    "description": "Подготовить демо",
-                                    "start": "2026-04-09T18:00:00Z",
-                                    "end": "2026-04-09T19:00:00Z",
-                                },
-                            }
-                        ],
                         "intents": [
                             {
                                 "item_index": 0,

@@ -52,7 +52,6 @@ class AssistantOrchestratorResponseSerializer(serializers.Serializer):
     message = serializers.CharField()
     assistant_reply = serializers.CharField(allow_blank=True)
     user_id = serializers.IntegerField()
-    candidates = SemanticSearchCandidateSerializer(many=True)
     intents = AssistantIntentResultSerializer(many=True)
 
     @classmethod
@@ -74,7 +73,6 @@ class AssistantOrchestratorResponseSerializer(serializers.Serializer):
             "message": result.message,
             "assistant_reply": result.assistant_reply,
             "user_id": result.user_id,
-            "candidates": result.candidates or [],
             "intents": intents_payload,
         }
         return cls(payload).data

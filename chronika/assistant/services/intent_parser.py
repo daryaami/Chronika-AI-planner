@@ -180,7 +180,7 @@ class IntentParserService:
 
         # Rough heuristic: ~4 chars per token + baseline for JSON structure.
         estimated_tokens = 120 + (char_count // 4)
-        return max(300, min(estimated_tokens, 700))
+        return max(200, min(estimated_tokens, 700))
 
     @staticmethod
     def _now_context_for_prompt() -> str:

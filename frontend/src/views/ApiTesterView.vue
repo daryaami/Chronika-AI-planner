@@ -5,10 +5,9 @@ import { useAuthStore } from '../store/auth'
 
 const authStore = useAuthStore()
 
-const method = ref('GET')
-const endpoint = ref('/users/ping/')
-const requestBody = ref('')
-const useCredentials = ref(true)
+const method = ref('POST')
+const endpoint = ref('/assistant/message/')
+const requestBody = ref('{\n  "message": ""\n}')
 const isLoading = ref(false)
 
 const response = ref<{
@@ -52,7 +51,7 @@ const sendRequest = async () => {
       headers: {
         'Content-Type': 'application/json'
       },
-      credentials: useCredentials.value ? 'include' : 'same-origin'
+      credentials: 'include'
     }
 
     const token = authStore.getAccessToken()
@@ -119,17 +118,6 @@ const sendRequest = async () => {
           placeholder='{ "key": "value" }'
         ></textarea>
       </div>
-
-      <div class="api-tester__credentials">
-        <input
-          id="credentials"
-          v-model="useCredentials"
-          type="checkbox"
-        >
-        <label for="credentials">Include credentials (cookies)</label>
-      </div>
-
-      <p class="api-tester__info">Base URL: {{ BASE_API_URL }}</p>
 
       <button type="submit" class="api-tester__submit" :disabled="isLoading">
         {{ isLoading ? 'Sending...' : 'Send Request' }}
