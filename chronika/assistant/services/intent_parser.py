@@ -22,10 +22,9 @@ class IntentDefinition:
 @dataclass
 class ParsedIntent:
     """Одно намерение (один шаг)."""
-
     intent: str
     entity_type: str | None
-    query: str | None
+    query: dict[str, Any] | None
     fields: dict[str, Any]
     datetime: dict[str, Any]
     meta: dict[str, Any]
@@ -58,7 +57,7 @@ DEFAULT_INTENTS: list[IntentDefinition] = [
     ),
     IntentDefinition(
         code="reschedule",
-        description="Перенести существующую сущность на другое время/дату.",
+        description="Перенести время уже запланированного события (event) на другое время/дату.",
         required_fields=["query"],
     ),
     IntentDefinition(
@@ -181,7 +180,7 @@ class IntentParserService:
 
         # Rough heuristic: ~4 chars per token + baseline for JSON structure.
         estimated_tokens = 120 + (char_count // 4)
-        return max(200, min(estimated_tokens, 700))
+        return max(300, min(estimated_tokens, 700))
 
     @staticmethod
     def _now_context_for_prompt() -> str:
@@ -218,6 +217,9 @@ class IntentParserService:
             "Используй только интенты из списка ниже.\n"
             "Если определить значение нельзя, заполняй null, пустым объектом {} или unknown.\n"
             "Если пользователь говорит о существующей сущности, обязательно заполни query.\n"
+            "query содержит признаки для поиска существующей сущности.\n"
+            "Разрешенные поля query: title, summary, description, notes, due_date, start, end, "
+            "priority, completed.\n"
             "entity_type может быть только: task, event, unknown или null (только для intent=other).\n"
             "Используй только разрешенные поля. Не добавляй ключи, которых нет в списках ниже.\n"
             "Поля fields для task: title, notes, priority, category_id, duration, due_date, completed.\n"
@@ -234,7 +236,7 @@ class IntentParserService:
             "{\n"
             '  "intent": "create|plan|update|reschedule|delete|get|other",\n'
             '  "entity_type": "task|event|unknown|null",\n'
-            '  "query": "строка или null",\n'
+            '  "query": {},\n'
             '  "fields": {},\n'
             '  "datetime": {},\n'
             '  "meta": {},\n'
@@ -312,8 +314,11 @@ class IntentParserService:
             entity_type = None
 
         query = payload.get("query")
-        if query is not None:
-            query = str(query).strip() or None
+        if not isinstance(query, dict):
+            query = {}
+        query = self._normalize_query_by_entity_type(query, entity_type)
+        if not query:
+            query = None
 
         fields = payload.get("fields", {})
         if not isinstance(fields, dict):
@@ -382,6 +387,27 @@ class IntentParserService:
             allowed = set()
 
         return self._pick_allowed_keys(fields, allowed)
+
+    def _normalize_query_by_entity_type(
+        self,
+        query: dict[str, Any],
+        entity_type: str | None,
+    ) -> dict[str, Any]:
+        common_keys = {"title", "summary", "description", "notes"}
+        task_keys = common_keys | {"due_date", "priority", "category_id", "completed"}
+        event_keys = common_keys | {"start", "end", "google_event_id", "google_calendar_id"}
+        unknown_keys = common_keys | {"due_date", "start", "end", "priority"}
+
+        if entity_type == "task":
+            allowed = task_keys
+        elif entity_type == "event":
+            allowed = event_keys
+        elif entity_type == "unknown":
+            allowed = unknown_keys
+        else:
+            allowed = set()
+
+        return self._pick_allowed_keys(query, allowed)
 
     def _fallback_result(self, raw_response: str | None) -> ParsedIntentResult:
         return ParsedIntentResult(

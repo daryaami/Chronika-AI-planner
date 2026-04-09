@@ -5,6 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from assistant.serializers import AssistantOrchestratorResponseSerializer
 from assistant.services.chat_orchestrator import ChatOrchestratorService
 
 
@@ -31,20 +32,46 @@ class AssistantMessageApi(APIView):
                         "message": "",
                         "assistant_reply": "",
                         "user_id": 1,
-                        "intent_parser": {
-                            "items": [
-                                {
-                                    "intent": "other",
-                                    "entity_type": None,
-                                    "query": None,
+                        "candidates": [
+                            {
+                                "entity_type": "event",
+                                "object_id": 123,
+                                "similarity": 0.812345,
+                                "payload": {
+                                    "summary": "Встреча с командой",
+                                    "description": "Подготовить демо",
+                                    "start": "2026-04-09T18:00:00Z",
+                                    "end": "2026-04-09T19:00:00Z",
+                                },
+                            }
+                        ],
+                        "intents": [
+                            {
+                                "item_index": 0,
+                                "intent": {
+                                    "intent": "update",
+                                    "entity_type": "event",
+                                    "query": {"summary": "Встреча с командой"},
                                     "fields": {},
-                                    "datetime": {},
+                                    "datetime": {"start_at": "2026-04-09T18:00:00Z"},
                                     "meta": {},
                                     "filters": {},
-                                }
-                            ],
-                            # "raw_response": None,
-                        },
+                                },
+                                "candidates": [
+                                    {
+                                        "entity_type": "event",
+                                        "object_id": 123,
+                                        "similarity": 0.812345,
+                                        "payload": {
+                                            "summary": "Встреча с командой",
+                                            "description": "Подготовить демо",
+                                            "start": "2026-04-09T18:00:00Z",
+                                            "end": "2026-04-09T19:00:00Z",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
                     }
                 },
             ),
@@ -68,12 +95,5 @@ class AssistantMessageApi(APIView):
             message=message,
         )
 
-        return Response(
-            {
-                "message": orchestrator_result.message,
-                "assistant_reply": orchestrator_result.assistant_reply,
-                "user_id": orchestrator_result.user_id,
-                "intent_parser": orchestrator_result.intent_parser,
-            },
-            status=status.HTTP_200_OK,
-        )
+        response_payload = AssistantOrchestratorResponseSerializer.from_result(orchestrator_result)
+        return Response(response_payload, status=status.HTTP_200_OK)
