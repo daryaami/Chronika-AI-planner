@@ -13,7 +13,8 @@ import LoaderVue from '../components/blocks/loaders/Loader.vue';
 import {useEventsStore} from "@/store/events";
 import {getEndOfMonth, getStartOfMonth} from "@/components/js/time-utils";
 import AsideTasksList from "@/components/blocks/tasks/AsideTasksList.vue";
-import EventPopup from "@/components/blocks/planner/EventPopup.vue";
+import EventPopup from "@/components/blocks/planner/event/EventPopup.vue";
+import EventCreatePopup from "@/components/blocks/planner/event/EventCreatePopup.vue";
 
 const isLoading = ref<boolean>(true);
 
@@ -25,6 +26,7 @@ const eventsStore = useEventsStore()
 const currentDate = ref<Date | null>(null)
 
 const selectedEvent = ref<EventInput | null>(null)
+const createPopupRef = ref<InstanceType<typeof EventCreatePopup> | null>(null)
 
 const updateEventTimeFromCalendar = (info: EventDragStopArg) => {
   const id = info.event.id
@@ -42,7 +44,7 @@ const updateEventTimeFromCalendar = (info: EventDragStopArg) => {
 }
 
 const eventClickHandler = (info: EventClickArg) => {
-  selectedEvent.value = info.event
+  selectedEvent.value = info.event as EventInput
 }
 
 const syncCalendarEvents = (newEvents: EventInput[]) => {
@@ -60,6 +62,7 @@ const syncCalendarEvents = (newEvents: EventInput[]) => {
 
   // ➕ добавить или обновить
   for (const e of newEvents) {
+    if (!e.id) return
     const existing = calendarApi.value.getEventById(e.id)
 
     if (existing) {
@@ -71,6 +74,9 @@ const syncCalendarEvents = (newEvents: EventInput[]) => {
   }
 }
 
+const openCreatePopup = (info: any) => {
+  createPopupRef.value?.open(info.date)
+}
 
 const calendarOptions: CalendarOptions = {
   plugins: [timeGridPlugin, interactionPlugin],
@@ -121,7 +127,10 @@ const calendarOptions: CalendarOptions = {
     const createdEvent = await eventsStore.createEvent(info)
     info.event.setExtendedProp('googleEvent', createdEvent)
   },
-  eventClick: eventClickHandler
+  eventClick: eventClickHandler,
+  dateClick: (info) => {
+    openCreatePopup(info) // дата/время клика
+  }
 }
 
 onMounted(async () => {
@@ -164,6 +173,7 @@ watch(
                     @close="selectedEvent = null"
                     @delete="selectedEvent?.remove(); selectedEvent = null"
         />
+        <EventCreatePopup ref="createPopupRef" />
       </div>
   </div>
   <AsideTasksList />

@@ -65,16 +65,19 @@ export const useEventsStore = defineStore('events', () => {
     const syncToastId = toastStore.addToast('Syncing with Google Calendar 🔄', 0)
 
     try {
-      const response = await fetch(
-        `${BASE_API_URL}/events/sync/?start=${formatDate(startDate)}&end=${formatDate(endDate)}`,
-        {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Authorization': `JWT ${authStore.getAccessToken()}`
+      const fetchFn = () =>
+        fetch(
+          `${BASE_API_URL}/events/sync/?start=${formatDate(startDate)}&end=${formatDate(endDate)}`,
+          {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+              'Authorization': `JWT ${authStore.getAccessToken()}`
+            }
           }
-        }
-      )
+        )
+
+      const response = await authStore.ensureAuthorizedRequest(fetchFn)
 
       toastStore.removeToast(syncToastId)
 
