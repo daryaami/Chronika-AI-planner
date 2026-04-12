@@ -77,7 +77,7 @@ class IntentParserServiceTests(TestCase):
         fake = FakeLLMClient(
             response=(
                 "Ответ:\n"
-                '{"intent":"delete","entity_type":"unknown","query":"купить продукты",'
+                '{"intent":"delete","entity_type":"unknown","query":{"title":"купить продукты"},'
                 '"fields":{},"datetime":{},"meta":{"scope":"single"},"filters":{}}'
                 "\nСпасибо"
             )
@@ -87,7 +87,7 @@ class IntentParserServiceTests(TestCase):
         result = parser.parse("Удали задачу купить продукты")
 
         self.assertEqual(result.items[0].intent, "delete")
-        self.assertEqual(result.items[0].query, "купить продукты")
+        self.assertEqual(result.items[0].query, {"title": "купить продукты"})
         self.assertEqual(result.items[0].meta.get("scope"), "single")
 
     def test_parse_normalizes_invalid_intent_and_entity_type(self):
@@ -124,7 +124,7 @@ class IntentParserServiceTests(TestCase):
                 '{"items":['
                 '{"intent":"create","entity_type":"task","query":null,'
                 '"fields":{"title":"купить молоко"},"datetime":{},"meta":{},"filters":{}},'
-                '{"intent":"delete","entity_type":"event","query":"встреча с клиентом",'
+                '{"intent":"delete","entity_type":"event","query":{"summary":"встреча с клиентом"},'
                 '"fields":{},"datetime":{},"meta":{},"filters":{}}'
                 "]}"
             )
@@ -137,4 +137,21 @@ class IntentParserServiceTests(TestCase):
         self.assertEqual(result.items[0].intent, "create")
         self.assertEqual(result.items[0].fields.get("title"), "купить молоко")
         self.assertEqual(result.items[1].intent, "delete")
-        self.assertEqual(result.items[1].query, "встреча с клиентом")
+        self.assertEqual(result.items[1].query, {"summary": "встреча с клиентом"})
+
+    def test_parse_normalizes_query_dict_and_drops_unknown_keys(self):
+        fake = FakeLLMClient(
+            response=(
+                '{"intent":"update","entity_type":"task",'
+                '"query":{"title":"купить молоко","priority":"HIGH","foo":"bar"},'
+                '"fields":{"priority":"LOW"},"datetime":{},"meta":{},"filters":{}}'
+            )
+        )
+        parser = IntentParserService(llm_client=fake)
+
+        result = parser.parse("Обнови приоритет задачи купить молоко")
+
+        self.assertEqual(
+            result.items[0].query,
+            {"title": "купить молоко", "priority": "HIGH"},
+        )

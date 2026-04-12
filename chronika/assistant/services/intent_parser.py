@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -21,10 +22,9 @@ class IntentDefinition:
 @dataclass
 class ParsedIntent:
     """Одно намерение (один шаг)."""
-
     intent: str
     entity_type: str | None
-    query: str | None
+    query: dict[str, Any] | None
     fields: dict[str, Any]
     datetime: dict[str, Any]
     meta: dict[str, Any]
@@ -57,7 +57,7 @@ DEFAULT_INTENTS: list[IntentDefinition] = [
     ),
     IntentDefinition(
         code="reschedule",
-        description="Перенести существующую сущность на другое время/дату.",
+        description="Перенести время уже запланированного события (event) на другое время/дату.",
         required_fields=["query"],
     ),
     IntentDefinition(
@@ -98,22 +98,89 @@ class IntentParserService:
 
     def parse(self, user_text: str) -> ParsedIntentResult:
         messages = self._build_messages(user_text)
+        max_tokens = self._resolve_max_tokens(user_text)
+        input_len = len((user_text or "").strip())
+        print(
+            f"[IntentParser] start parse: input_len={input_len}, "
+            f"max_tokens={max_tokens}, messages={len(messages)}"
+        )
+
         try:
+            started_at = time.perf_counter()
             raw_response = self.llm_client.chat_with_messages(
                 messages=messages,
                 temperature=0.0,
-                max_tokens=1200,
+                max_tokens=max_tokens,
                 response_format={"type": "json_object"},
             )
+            elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+            print(
+                f"[IntentParser] primary inference done: elapsed_ms={elapsed_ms}, "
+                f"response_len={len(raw_response)}"
+            )
         except LLMClientError as exc:
+            print(f"[IntentParser] primary inference error: {exc}")
             logger.warning("Intent parser failed to call LLM: %s", exc)
             return self._fallback_result(raw_response=None)
 
         parsed = self._safe_parse_json(raw_response)
         if parsed is None:
-            return self._fallback_result(raw_response=raw_response)
+            # Retry once with a larger budget: multi-step requests can produce
+            # longer JSON and may be truncated on first attempt.
+            retry_tokens = min(max_tokens * 2, 1200)
+            print(
+                "[IntentParser] primary response JSON parse failed; "
+                f"retrying with retry_tokens={retry_tokens}"
+            )
+            try:
+                retry_started_at = time.perf_counter()
+                raw_response_retry = self.llm_client.chat_with_messages(
+                    messages=messages,
+                    temperature=0.0,
+                    max_tokens=retry_tokens,
+                    response_format={"type": "json_object"},
+                )
+                retry_elapsed_ms = int((time.perf_counter() - retry_started_at) * 1000)
+                print(
+                    f"[IntentParser] retry inference done: elapsed_ms={retry_elapsed_ms}, "
+                    f"response_len={len(raw_response_retry)}"
+                )
+            except LLMClientError as exc:
+                print(f"[IntentParser] retry inference error: {exc}")
+                logger.warning("Intent parser retry failed to call LLM: %s", exc)
+                return self._fallback_result(raw_response=raw_response)
 
-        return self._normalize_root(parsed, raw_response=raw_response)
+            parsed_retry = self._safe_parse_json(raw_response_retry)
+            if parsed_retry is None:
+                print("[IntentParser] retry JSON parse failed; fallback=intent_other")
+                return self._fallback_result(raw_response=raw_response_retry)
+            result = self._normalize_root(parsed_retry, raw_response=raw_response_retry)
+            print(
+                f"[IntentParser] retry parse success: items_count={len(result.items)}, "
+                f"raw_response_len={len(raw_response_retry)}"
+            )
+            return result
+
+        result = self._normalize_root(parsed, raw_response=raw_response)
+        print(
+            f"[IntentParser] primary parse success: items_count={len(result.items)}, "
+            f"raw_response_len={len(raw_response)}"
+        )
+        return result
+
+    @staticmethod
+    def _resolve_max_tokens(user_text: str) -> int:
+        """
+        Dynamic budget for response tokens:
+        - short inputs get a smaller cap (faster/cheaper),
+        - long inputs still get enough space for structured JSON.
+        """
+        text = (user_text or "").strip()
+        char_count = len(text)
+
+        # Rough heuristic: ~4 chars per token + baseline for JSON structure.
+        estimated_tokens = 120 + (char_count // 4)
+        return max(300, min(estimated_tokens, 700))
 
     @staticmethod
     def _now_context_for_prompt() -> str:
@@ -150,6 +217,9 @@ class IntentParserService:
             "Используй только интенты из списка ниже.\n"
             "Если определить значение нельзя, заполняй null, пустым объектом {} или unknown.\n"
             "Если пользователь говорит о существующей сущности, обязательно заполни query.\n"
+            "query содержит признаки для поиска существующей сущности.\n"
+            "Разрешенные поля query: title, summary, description, notes, due_date, start, end, "
+            "priority, completed.\n"
             "entity_type может быть только: task, event, unknown или null (только для intent=other).\n"
             "Используй только разрешенные поля. Не добавляй ключи, которых нет в списках ниже.\n"
             "Поля fields для task: title, notes, priority, category_id, duration, due_date, completed.\n"
@@ -166,7 +236,7 @@ class IntentParserService:
             "{\n"
             '  "intent": "create|plan|update|reschedule|delete|get|other",\n'
             '  "entity_type": "task|event|unknown|null",\n'
-            '  "query": "строка или null",\n'
+            '  "query": {},\n'
             '  "fields": {},\n'
             '  "datetime": {},\n'
             '  "meta": {},\n'
@@ -244,8 +314,11 @@ class IntentParserService:
             entity_type = None
 
         query = payload.get("query")
-        if query is not None:
-            query = str(query).strip() or None
+        if not isinstance(query, dict):
+            query = {}
+        query = self._normalize_query_by_entity_type(query, entity_type)
+        if not query:
+            query = None
 
         fields = payload.get("fields", {})
         if not isinstance(fields, dict):
@@ -314,6 +387,27 @@ class IntentParserService:
             allowed = set()
 
         return self._pick_allowed_keys(fields, allowed)
+
+    def _normalize_query_by_entity_type(
+        self,
+        query: dict[str, Any],
+        entity_type: str | None,
+    ) -> dict[str, Any]:
+        common_keys = {"title", "summary", "description", "notes"}
+        task_keys = common_keys | {"due_date", "priority", "category_id", "completed"}
+        event_keys = common_keys | {"start", "end", "google_event_id", "google_calendar_id"}
+        unknown_keys = common_keys | {"due_date", "start", "end", "priority"}
+
+        if entity_type == "task":
+            allowed = task_keys
+        elif entity_type == "event":
+            allowed = event_keys
+        elif entity_type == "unknown":
+            allowed = unknown_keys
+        else:
+            allowed = set()
+
+        return self._pick_allowed_keys(query, allowed)
 
     def _fallback_result(self, raw_response: str | None) -> ParsedIntentResult:
         return ParsedIntentResult(

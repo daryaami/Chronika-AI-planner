@@ -81,6 +81,25 @@ class GoogleCalendarService:
         except HttpError as e:
             raise GoogleNetworkError(f"Ошибка при обращении к Google API: {str(e)}")
 
+    def _set_user_timezone_from_primary_calendar(self, user, calendars):
+        if user.time_zone:
+            return
+        primary_cal = next(
+            (c for c in calendars if c.get("primary") in (True, "true")),
+            None,
+        )
+        if not primary_cal:
+            return
+        tz = primary_cal.get("time_zone")
+        if tz and isinstance(tz, str) and IANA_TIMEZONE_RE.match(tz.strip()):
+            user.time_zone = tz.strip()
+            user.save(update_fields=["time_zone"])
+            logger.info(
+                "Set user %s timezone from primary calendar: %s",
+                user.email,
+                user.time_zone,
+            )
+
     def create_user_calendars(self, user):
         """
         Создает календари пользователя в базе данных.
@@ -89,22 +108,7 @@ class GoogleCalendarService:
         """
         try:
             calendars = self.get_google_calendars(user)
-            # Устанавливаем timezone пользователя из primary-календаря, если у него ещё нет
-            if not user.time_zone:
-                primary_cal = next(
-                    (c for c in calendars if c.get("primary") in (True, "true")),
-                    None,
-                )
-                if primary_cal:
-                    tz = primary_cal.get("time_zone")
-                    if tz and isinstance(tz, str) and IANA_TIMEZONE_RE.match(tz.strip()):
-                        user.time_zone = tz.strip()
-                        user.save(update_fields=["time_zone"])
-                        logger.info(
-                            "Set user %s timezone from primary calendar: %s",
-                            user.email,
-                            user.time_zone,
-                        )
+            self._set_user_timezone_from_primary_calendar(user, calendars)
             serializer = UserCalendarSerializer(data=calendars, many=True)
             if serializer.is_valid():
                 user_calendars = [UserCalendar(**data, user=user) for data in serializer.validated_data]
@@ -113,6 +117,63 @@ class GoogleCalendarService:
                 raise CalendarCreationError(f"Ошибка сериализации календарей: {serializer.errors}")
         except CalendarSyncError as e:
             raise CalendarSyncError(f"Ошибка синхронизации календарей для пользователя {user}: {e}")
+
+    def sync_user_calendars_safely(self, user):
+        """
+        Безопасно обновляет календари пользователя без удаления записей,
+        чтобы не триггерить каскадное удаление Task/Event.
+        """
+        calendars = self.get_google_calendars(user)
+        self._set_user_timezone_from_primary_calendar(user, calendars)
+
+        serializer = UserCalendarSerializer(data=calendars, many=True)
+        if not serializer.is_valid():
+            raise CalendarCreationError(f"Ошибка сериализации календарей: {serializer.errors}")
+
+        validated_calendars = serializer.validated_data
+        existing_calendars = {
+            calendar.google_calendar_id: calendar
+            for calendar in UserCalendar.objects.filter(user=user)
+        }
+        fetched_google_calendar_ids = set()
+        to_create = []
+        to_update = []
+
+        for calendar_data in validated_calendars:
+            google_calendar_id = calendar_data["google_calendar_id"]
+            fetched_google_calendar_ids.add(google_calendar_id)
+            existing = existing_calendars.get(google_calendar_id)
+
+            if not existing:
+                to_create.append(UserCalendar(user=user, **calendar_data))
+                continue
+
+            changed = False
+            for field in ("summary", "description", "owner", "background_color", "time_zone", "primary"):
+                new_value = calendar_data.get(field)
+                if getattr(existing, field) != new_value:
+                    setattr(existing, field, new_value)
+                    changed = True
+            if existing.primary and not existing.selected:
+                existing.selected = True
+                changed = True
+            if changed:
+                to_update.append(existing)
+
+        with transaction.atomic():
+            if to_create:
+                UserCalendar.objects.bulk_create(to_create)
+            if to_update:
+                UserCalendar.objects.bulk_update(
+                    to_update,
+                    ["summary", "description", "owner", "background_color", "time_zone", "primary", "selected"],
+                )
+            if fetched_google_calendar_ids:
+                UserCalendar.objects.filter(user=user).exclude(
+                    google_calendar_id__in=fetched_google_calendar_ids
+                ).update(selected=False)
+
+        return UserCalendar.objects.filter(user=user)
         
     def toggle_calendar_select(self, user, google_calendar_id):
         """
@@ -219,7 +280,10 @@ class GoogleCalendarService:
         task_id: int | None = None,
         start_dt=None,
         end_dt=None,
+        enqueue_embedding: bool = True,
     ) -> Event:
+        from tasks.models import Task
+
         start_value = start_dt
         end_value = end_dt
         if start_value is None and end_value is None:
@@ -249,17 +313,26 @@ class GoogleCalendarService:
             "htmlLink": event_data.get("htmlLink"),
             "organizer_email": organizer_email,
         }
-        if text_fields_changed:
+        if text_fields_changed and enqueue_embedding:
             defaults["embedding_status"] = EmbeddingStatus.PENDING
-        if task_id:
-            defaults["task_id"] = task_id
+        if task_id is not None:
+            parsed_task_id = None
+            try:
+                parsed_task_id = int(task_id)
+            except (TypeError, ValueError):
+                parsed_task_id = None
+
+            if parsed_task_id and Task.objects.filter(id=parsed_task_id).exists():
+                defaults["task_id"] = parsed_task_id
+            else:
+                defaults["task_id"] = None
 
         local_event, _ = Event.objects.update_or_create(
             user_calendar=user_calendar,
             google_event_id=event_data.get("id"),
             defaults=defaults,
         )
-        if text_fields_changed:
+        if text_fields_changed and enqueue_embedding:
             generate_event_embedding.delay(local_event.id)
         return local_event
 

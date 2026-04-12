@@ -6,6 +6,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
+from core.enums import EmbeddingStatus
 from events.models import Event, UserCalendar
 from events.services import GoogleCalendarService
 from core.exceptions import GoogleRefreshTokenError
@@ -219,6 +220,51 @@ class EventEndpointsTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data), 2)
 
+    @patch("events.services.GoogleCalendarService.get_google_calendars")
+    def test_refresh_calendars_updates_safely_without_cascade_delete(self, mocked_google_calendars):
+        task = Task.objects.create(
+            user=self.user,
+            title="Bound to selected calendar",
+            notes="Should survive refresh",
+            calendar=self.selected_calendar,
+        )
+        mocked_google_calendars.return_value = [
+            {
+                "google_calendar_id": self.selected_calendar.google_calendar_id,
+                "summary": "Selected calendar renamed",
+                "description": None,
+                "time_zone": "Europe/Moscow",
+                "primary": True,
+                "background_color": "#039be5",
+                "owner": True,
+            },
+            {
+                "google_calendar_id": "extra-cal-id",
+                "summary": "Extra calendar",
+                "description": None,
+                "time_zone": "Europe/Moscow",
+                "primary": False,
+                "background_color": "#f4511e",
+                "owner": True,
+            },
+        ]
+        url = reverse("refresh_calendars")
+        response = self.client.post(url, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mocked_google_calendars.assert_called_once_with(self.user)
+        self.assertEqual(len(response.data), 3)
+        self.selected_calendar.refresh_from_db()
+        self.assertEqual(self.selected_calendar.summary, "Selected calendar renamed")
+        self.assertTrue(UserCalendar.objects.filter(user=self.user, google_calendar_id="extra-cal-id").exists())
+        self.assertFalse(
+            UserCalendar.objects.get(
+                user=self.user,
+                google_calendar_id=self.unselected_calendar.google_calendar_id,
+            ).selected
+        )
+        self.assertTrue(Task.objects.filter(id=task.id, calendar=self.selected_calendar).exists())
+
     @patch("events.apis.GoogleCalendarService.toggle_calendar_select", return_value=True)
     def test_toggle_calendar_select_endpoint(self, mocked_toggle):
         url = reverse("toggle_calendar_select")
@@ -408,6 +454,54 @@ class EventEndpointsTests(APITestCase):
         self.assertEqual(updated.embedding_status, "COMPLETED")
         mocked_delay.assert_not_called()
 
+    @patch("events.services.generate_event_embedding.delay")
+    @patch("events.apis.GoogleCalendarService.update_event")
+    def test_update_event_endpoint_ignores_deleted_task_reference(
+        self,
+        mocked_update_event,
+        mocked_delay,
+    ):
+        task = Task.objects.create(
+            user=self.user,
+            title="Temp task",
+            notes="Temp notes",
+            calendar=self.selected_calendar,
+        )
+        stale_task_id = task.id
+        task.delete()
+
+        mocked_update_event.return_value = {
+            "id": "evt-stale-task-id",
+            "summary": "Event with stale task ref",
+            "description": "Should be saved without task",
+            "start": {"dateTime": "2026-03-20T12:00:00+00:00"},
+            "end": {"dateTime": "2026-03-20T13:00:00+00:00"},
+            "htmlLink": "https://google.com/event/evt-stale-task-id",
+            "organizer": {"email": "org@example.com"},
+            "extendedProperties": {"private": {"chronika__task-id": str(stale_task_id)}},
+        }
+
+        url = reverse("calendar_events")
+        response = self.client.put(
+            url,
+            {
+                "event_id": "evt-stale-task-id",
+                "user_calendar_id": self.selected_calendar.id,
+                "summary": "Event with stale task ref",
+                "start": {"dateTime": "2026-03-20T12:00:00+00:00"},
+                "end": {"dateTime": "2026-03-20T13:00:00+00:00"},
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        updated = Event.objects.get(
+            user_calendar=self.selected_calendar,
+            google_event_id="evt-stale-task-id",
+        )
+        self.assertIsNone(updated.task)
+        mocked_delay.assert_called_once_with(updated.id)
+
     @patch("events.apis.GoogleCalendarService.delete_event")
     def test_delete_event_endpoint_removes_local_event(self, mocked_delete_event):
         Event.objects.create(
@@ -439,6 +533,8 @@ class EventEndpointsTests(APITestCase):
             title="Task title",
             notes="Task notes",
             calendar=self.selected_calendar,
+            embedding=[0.1] * 1024,
+            embedding_status=EmbeddingStatus.COMPLETED,
         )
         mocked_create_event.return_value = {
             "id": "from-task-evt",
@@ -463,8 +559,9 @@ class EventEndpointsTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         created = Event.objects.get(google_event_id="from-task-evt", task=task)
-        self.assertEqual(created.embedding_status, "PENDING")
-        mocked_delay.assert_called_once_with(created.id)
+        self.assertEqual(created.embedding_status, EmbeddingStatus.COMPLETED)
+        self.assertEqual(created.embedding, task.embedding)
+        mocked_delay.assert_not_called()
 
     def test_get_events_requires_start_and_end(self):
         url = reverse("calendar_events")
