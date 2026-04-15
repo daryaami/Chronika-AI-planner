@@ -23,8 +23,8 @@ const calendars = ref<Calendar[]>()
 const selectedCalendar = ref<Calendar>()
 
 onMounted(async () => {
-  calendars.value = await calendarsStore.getCalendars()
-
+  const fetchedCalendars = await calendarsStore.getCalendars();
+  calendars.value = fetchedCalendars.filter(c => c.owner)
   console.log(calendars)
   selectedCalendar.value = calendars.value.filter(calendar => calendar.primary)[0]
 
@@ -34,6 +34,9 @@ onMounted(async () => {
     if (calendar) {
       selectedCalendar.value = calendar
     }
+  } else if (selectedCalendar.value) {
+    // Если не передан calendarId, эмитим primary календарь
+    emit('update:modelValue', selectedCalendar.value.id)
   }
 })
 

@@ -1,15 +1,44 @@
 <script setup lang="ts">
-import { useAutoHeightTextarea } from "@/components/composables/useAutoHeightTextarea";
+import { ref, onMounted, nextTick } from 'vue';
 
 interface Props {
   placeholder?: string;
+  modelValue?: string;
 }
 
-withDefaults(defineProps<Props>(), {
+const props = withDefaults(defineProps<Props>(), {
   placeholder: 'Добавьте описание'
 });
 
-const { textareaRef, value, resize } = useAutoHeightTextarea();
+const emit = defineEmits<{
+  'update:modelValue': [value: string]
+}>();
+
+const textareaRef = ref<HTMLTextAreaElement | null>(null);
+
+const resize = () => {
+  const el = textareaRef.value;
+  if (!el) return;
+
+  el.style.height = 'auto';
+  const height = el.scrollHeight;
+
+  if (height > 0) {
+    el.style.height = `${height}px`;
+  }
+
+  el.style.overflow = 'hidden';
+};
+
+const onInput = (event: Event) => {
+  const target = event.target as HTMLTextAreaElement;
+  emit('update:modelValue', target.value);
+  nextTick(() => resize());
+};
+
+onMounted(() => {
+  nextTick(() => resize());
+});
 </script>
 
 <template>
@@ -20,11 +49,11 @@ const { textareaRef, value, resize } = useAutoHeightTextarea();
 
     <textarea
       ref="textareaRef"
-      v-model="value"
+      :value="modelValue"
+      @input="onInput"
       rows="1"
       class="text-field__textarea"
       :placeholder="placeholder"
-      @input="resize"
     />
   </label>
 </template>

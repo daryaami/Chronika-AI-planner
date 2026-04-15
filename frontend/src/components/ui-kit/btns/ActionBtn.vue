@@ -1,7 +1,8 @@
 <script setup lang="ts">
 defineProps<{
   text: string
-  type?: 'primary' | 'secondary'
+  variant?: 'primary' | 'secondary'
+  type?: 'button' | 'submit' | 'reset'
 }>()
 
 defineEmits<{
@@ -12,8 +13,8 @@ defineEmits<{
 <template>
   <button
     class="action-btn"
-    :class="`action-btn--${type || 'primary'}`"
-    type="button"
+    :class="`action-btn--${variant || 'primary'}`"
+    :type="type || 'button'"
     @click="$emit('click')"
   >
     {{ text }}

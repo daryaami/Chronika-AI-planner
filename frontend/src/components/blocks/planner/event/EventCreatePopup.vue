@@ -6,20 +6,26 @@ import EventCalendarSelect from "@/components/blocks/planner/event/EventCalendar
 import EventTimeSelect from "@/components/blocks/planner/event/EventTimeSelect.vue";
 import TextField from "@/components/ui-kit/inputs/TextField.vue";
 import ActionBtn from "@/components/ui-kit/btns/ActionBtn.vue";
+import { useEventsStore } from "@/store/events";
 
 const dialog = ref<HTMLDialogElement | null>(null);
 
+const title = ref('');
+const description = ref('');
 const startDate = ref<Date | null>(null);
 const endDate = ref<Date | null>(null);
 const userCalendarId = ref<number>();
+
+const eventsStore = useEventsStore();
 
 const open = async (date: Date) => {
   dialog.value?.showModal();
 
   startDate.value = date;
   endDate.value = new Date(date.getTime() + 3600000);
+  title.value = '';
+  description.value = '';
 
-  // 🔥 ключевой фикс: дождаться рендера dialog + children
   await nextTick();
 };
 
@@ -27,34 +33,64 @@ const close = () => {
   dialog.value?.close();
 };
 
+const onSubmit = async () => {
+  if (!userCalendarId.value || !startDate.value || !endDate.value) {
+    console.log('Validation failed');
+    return;
+  }
+
+  const payload = {
+    summary: title.value || 'Без названия',
+    user_calendar_id: userCalendarId.value,
+    description: description.value || undefined,
+    start: {
+      dateTime: startDate.value.toISOString()
+    },
+    end: {
+      dateTime: endDate.value.toISOString()
+    }
+  };
+
+  close();
+
+  await eventsStore.createEventFromForm(payload);
+};
+
 defineExpose({ open, close });
 </script>
 
 <template>
   <dialog class="event-create-popup" ref="dialog">
-    <div class="event-create-popup__header">
-      <IconBtn icon="delete" size="s" variant="secondary" />
-      <IconBtn icon="cross" size="s" @click="close" />
-    </div>
+    <form @submit.prevent="onSubmit">
 
-    <TextTitleInput class="event-create-popup__title" />
+      <div class="event-create-popup__header">
+        <IconBtn icon="delete" size="s" variant="secondary" />
+        <IconBtn icon="cross" size="s" @click="close" />
+      </div>
 
-    <div class="event-create-popup__fields">
-      <EventTimeSelect
-        v-model:start-date="startDate"
-        v-model:end-date="endDate"
-        class="event-create-popup__date"
+      <TextTitleInput
+        class="event-create-popup__title"
+        v-model="title"
+        placeholder="Название события"
       />
 
-      <EventCalendarSelect v-model="userCalendarId" />
+      <div class="event-create-popup__fields">
+        <EventTimeSelect
+          v-model:start-date="startDate"
+          v-model:end-date="endDate"
+          class="event-create-popup__date"
+        />
 
-      <TextField />
-    </div>
+        <EventCalendarSelect v-model="userCalendarId" />
 
-    <div class="event-create-popup__footer">
-      <ActionBtn text="Отменить" type="secondary" @click.native="close" />
-      <ActionBtn text="Создать" type="primary" @click.native="close" />
-    </div>
+        <TextField v-model="description" />
+      </div>
+
+      <div class="event-create-popup__footer">
+        <ActionBtn text="Отменить" variant="secondary" @click="close" />
+        <ActionBtn text="Создать" variant="primary" type="submit" />
+      </div>
+    </form>
   </dialog>
 </template>
 

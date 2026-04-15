@@ -15,7 +15,7 @@ withDefaults(defineProps<Props>(), {
 </script>
 
 <template>
-  <button class="event-select-display">
+  <button class="event-select-display" type="button">
     <svg xmlns="http://www.w3.org/2000/svg" :style="`color: ${iconColor}`" class="event-select-display__icon" width="18" height="18">
       <use :href="`#${icon}`"></use>
     </svg>
