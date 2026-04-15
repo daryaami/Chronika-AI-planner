@@ -28,11 +28,13 @@ const time = computed(() => {
 })
 
 const deleteEvent = async () => {
-  const eventId = props.event?.extendedProps?.googleEvent?.id;
-  const userCalendarId = props.event?.extendedProps?.googleEvent?.user_calendar_id;
+  const googleEvent = props.event?.extendedProps?.googleEvent;
 
-  if (!eventId || !userCalendarId) return
+  // Пробуем получить данные из googleEvent или из extendedProps
+  const eventId = googleEvent?.id || props.event.id;
+  const userCalendarId = googleEvent?.user_calendar_id || props.event.extendedProps?.user_calendar_id;
 
+  if (!eventId || !userCalendarId) return;
 
   await eventsStore.deleteEvent(eventId, userCalendarId)
 

@@ -24,7 +24,10 @@ export const useEventsStore = defineStore('events', () => {
       end: event.end?.dateTime,
       backgroundColor: event.color,
       borderColor: event.color,
-      googleEvent: event
+      googleEvent: event,
+      extendedProps: {
+        user_calendar_id: event.user_calendar_id
+      }
     }
   }
 
@@ -65,16 +68,19 @@ export const useEventsStore = defineStore('events', () => {
     const syncToastId = toastStore.addToast('Syncing with Google Calendar 🔄', 0)
 
     try {
-      const response = await fetch(
-        `${BASE_API_URL}/events/sync/?start=${formatDate(startDate)}&end=${formatDate(endDate)}`,
-        {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Authorization': `JWT ${authStore.getAccessToken()}`
+      const fetchFn = () =>
+        fetch(
+          `${BASE_API_URL}/events/sync/?start=${formatDate(startDate)}&end=${formatDate(endDate)}`,
+          {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+              'Authorization': `JWT ${authStore.getAccessToken()}`
+            }
           }
-        }
-      )
+        )
+
+      const response = await authStore.ensureAuthorizedRequest(fetchFn)
 
       toastStore.removeToast(syncToastId)
 
@@ -229,10 +235,54 @@ export const useEventsStore = defineStore('events', () => {
     })
   }
 
+  const createEventFromForm = async (data: {
+    summary: string
+    user_calendar_id: number
+    description?: string
+    start: { dateTime: string }
+    end: { dateTime: string }
+  }) => {
+    const loadingToastId = toastStore.addToast('Creating event... ⏳', 0)
+
+    try {
+      const fetchFn = () =>
+        fetch(`${BASE_API_URL}/events/`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `JWT ${authStore.getAccessToken()}`
+          },
+          body: JSON.stringify(data)
+        })
+
+      const response = await authStore.ensureAuthorizedRequest(fetchFn)
+
+      toastStore.removeToast(loadingToastId)
+
+      if (response.ok) {
+        const event = await response.json()
+        // Сохраняем user_calendar_id в событии для последующего удаления
+        event.user_calendar_id = data.user_calendar_id
+
+        events.value.push(adaptEventToFullCalendar(event))
+        toastStore.addToast('Event created successfully! ✅', 3000)
+        return event
+      } else {
+        toastStore.addToast('Failed to create event 😞', 4000)
+      }
+    } catch (error) {
+      toastStore.removeToast(loadingToastId)
+      toastStore.addToast('Failed to create event 😞', 4000)
+      console.error('Create event error:', error)
+    }
+  }
+
   return {
     events,
     getEvents,
     createEvent,
+    createEventFromForm,
     updateEvent,
     deleteEvent
   }

@@ -5,7 +5,7 @@ withDefaults(defineProps<{
   icon?: string,
   size?: UISize,
   disabled?: boolean,
-  variant?: 'accent' | null,
+  variant?: 'accent' | 'secondary' | null,
 }>(), {
   icon: 'placeholder',
   size: 'm',
@@ -74,6 +74,10 @@ withDefaults(defineProps<{
 
   &--accent {
     color: var(--icon-hover);
+  }
+
+  &--secondary {
+    color: var(--icon-inactive);
   }
 
   &:disabled {
