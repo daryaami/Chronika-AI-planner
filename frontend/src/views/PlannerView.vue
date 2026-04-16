@@ -15,6 +15,7 @@ import {getEndOfMonth, getStartOfMonth} from "@/components/js/time-utils";
 import AsideTasksList from "@/components/blocks/tasks/AsideTasksList.vue";
 import EventPopup from "@/components/blocks/planner/event/EventPopup.vue";
 import EventCreatePopup from "@/components/blocks/planner/event/EventCreatePopup.vue";
+import AssistantWindow from "@/components/blocks/assistant/AssistantWindow.vue";
 
 const isLoading = ref<boolean>(true);
 
@@ -177,6 +178,8 @@ watch(
       </div>
   </div>
   <AsideTasksList />
+  <AssistantWindow class="planner__assistant-window" />
+
 </div>
 
 
@@ -195,6 +198,8 @@ watch(
   grid-template-rows: auto 1fr;
   overflow: hidden;
   flex-grow: 1;
+
+  position: relative;
 
   &__weekday {
     font: var(--bold-10);
@@ -219,6 +224,13 @@ watch(
     display: flex;
     align-items: center;
     justify-content: center;
+  }
+
+  &__assistant-window {
+    position: fixed;
+    right: 374px;
+    bottom: 36px;
+    z-index: 100000000;
   }
 }
 
