@@ -117,7 +117,8 @@ class UserCalendarEventsApi(APIView):
         calendar_service = GoogleCalendarService()
         event = calendar_service.create_event(request.user, google_calendar_id, event_data)
         calendar_service.upsert_local_event(user_calendar=user_calendar, event_data=event)
-        
+        event["user_calendar_id"] = user_calendar.id
+
         response_serializer = GoogleCalendarEventSerializer(event)
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
@@ -157,6 +158,7 @@ class UserCalendarEventsApi(APIView):
             event_data=event,
             task_id=task_id,
         )
+        event["user_calendar_id"] = user_calendar.id
 
         response_serializer = GoogleCalendarEventSerializer(event)
         return Response(response_serializer.data, status=status.HTTP_200_OK)

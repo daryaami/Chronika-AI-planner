@@ -12,6 +12,7 @@ from assistant.services.intent_parser import IntentParserService
 from assistant.services.plan_executor import PlanExecutorService
 from assistant.services.plan_merge import PlanMergeService
 from assistant.services.reply_interpreter import ReplyInterpreterInput, ReplyInterpreterService
+from assistant.services.scheduler_service import SchedulerService
 from assistant.services.search_stage import SearchStageService
 
 
@@ -43,12 +44,14 @@ class FsmMachine:
         plan_merge: PlanMergeService | None = None,
         search_stage: SearchStageService | None = None,
         executor: PlanExecutorService | None = None,
+        scheduler: SchedulerService | None = None,
     ):
         self.intent_parser = intent_parser or IntentParserService()
         self.reply_interpreter = reply_interpreter or ReplyInterpreterService()
         self.plan_merge = plan_merge or PlanMergeService()
         self.search_stage = search_stage or SearchStageService()
         self.executor = executor or PlanExecutorService()
+        self.scheduler = scheduler or SchedulerService()
 
     def run_turn(
         self,
@@ -74,7 +77,11 @@ class FsmMachine:
         plan = parsed_intents_to_action_plan(parsed.items)
         plan_after_adapter = action_plan_to_dict(plan)
         search = self.search_stage.resolve_targets_in_plan(user=user, plan=plan)
-        plan_after_search = action_plan_to_dict(search.plan)
+        sched_plan = search.plan
+        sched_hint: str | None = None
+        if search.next_state == DialogState.WAITING_CONFIRMATION:
+            sched_plan, sched_hint = self.scheduler.apply_to_plan(user, search.plan)
+        plan_after_search = action_plan_to_dict(sched_plan)
         trace(
             "FSM (IDLE): ответ IntentParser → нормализация → Action Plan",
             сырой_json_от_llm=pretty_json_text(parsed.raw_response),
@@ -83,6 +90,7 @@ class FsmMachine:
             action_plan_после_search_stage=pretty_data(plan_after_search),
             следующее_состояние_fsm=search.next_state.value,
             подсказка_ассистента=pretty_data({"text": search.assistant_hint or ""}),
+            подсказка_планировщика=pretty_data({"text": sched_hint or ""}),
         )
 
         ctx = snapshot.context
@@ -93,14 +101,19 @@ class FsmMachine:
 
         new_snapshot = DialogSessionSnapshot(
             state=search.next_state,
-            plan=search.plan,
-            context=self._sync_last_interaction(ctx, search.plan),
-            last_referenced_id=self._primary_target_id(search.plan) or snapshot.last_referenced_id,
+            plan=sched_plan,
+            context=self._sync_last_interaction(ctx, sched_plan),
+            last_referenced_id=self._primary_target_id(sched_plan) or snapshot.last_referenced_id,
         )
+
+        reply_parts = [search.assistant_hint or ""]
+        if sched_hint:
+            reply_parts.append(sched_hint)
+        assistant_reply = " ".join(p for p in reply_parts if p).strip()
 
         return FsmTurnResult(
             snapshot=new_snapshot,
-            assistant_reply=search.assistant_hint or "",
+            assistant_reply=assistant_reply,
         )
 
     def _handle_dialog(
@@ -171,16 +184,25 @@ class FsmMachine:
                 "FSM: Action Plan после merge (ветка SELECT / disambiguation)",
                 action_plan=pretty_data(action_plan_to_dict(merged)),
             )
+            sched_merged, sched_hint = self.scheduler.apply_to_plan(user, merged)
+            trace(
+                "FSM: Action Plan после Scheduler (SELECT)",
+                action_plan=pretty_data(action_plan_to_dict(sched_merged)),
+                подсказка_планировщика=pretty_data({"text": sched_hint or ""}),
+            )
             ctx = replace(snapshot.context, disambiguation_options=[])
             new_snapshot = DialogSessionSnapshot(
                 state=DialogState.WAITING_CONFIRMATION,
-                plan=merged,
-                context=self._sync_last_interaction(ctx, merged),
+                plan=sched_merged,
+                context=self._sync_last_interaction(ctx, sched_merged),
                 last_referenced_id=interpretation.target_ids[0],
             )
+            reply_parts = ["Выбор зафиксирован. Подтвердите выполнение."]
+            if sched_hint:
+                reply_parts.append(sched_hint)
             return FsmTurnResult(
                 snapshot=new_snapshot,
-                assistant_reply="Выбор зафиксирован. Подтвердите выполнение.",
+                assistant_reply=" ".join(reply_parts).strip(),
             )
 
         if interpretation.dialog_intent == DialogIntent.CONFIRM:
@@ -224,15 +246,24 @@ class FsmMachine:
                 "FSM: Action Plan после merge (ветка MODIFY)",
                 action_plan=pretty_data(action_plan_to_dict(merged)),
             )
+            sched_merged, sched_hint = self.scheduler.apply_to_plan(user, merged)
+            trace(
+                "FSM: Action Plan после Scheduler (MODIFY)",
+                action_plan=pretty_data(action_plan_to_dict(sched_merged)),
+                подсказка_планировщика=pretty_data({"text": sched_hint or ""}),
+            )
             new_snapshot = DialogSessionSnapshot(
                 state=DialogState.WAITING_CONFIRMATION,
-                plan=merged,
-                context=self._sync_last_interaction(snapshot.context, merged),
+                plan=sched_merged,
+                context=self._sync_last_interaction(snapshot.context, sched_merged),
                 last_referenced_id=snapshot.last_referenced_id,
             )
+            reply_parts = ["План обновлён. Подтвердите выполнение."]
+            if sched_hint:
+                reply_parts.append(sched_hint)
             return FsmTurnResult(
                 snapshot=new_snapshot,
-                assistant_reply="План обновлён. Подтвердите выполнение.",
+                assistant_reply=" ".join(reply_parts).strip(),
             )
 
         return FsmTurnResult(

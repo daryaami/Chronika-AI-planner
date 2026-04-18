@@ -16,11 +16,18 @@ _EVENT_EDITABLE_FIELDS: tuple[str, ...] = ("summary", "start", "end")
 _TASK_EDITABLE_FIELDS: tuple[str, ...] = (
     "title",
     "due_date",
-    "date",
     "duration",
     "category_id",
     "priority",
 )
+
+# Не отдавать клиенту в blocks.entity.fields (внутреннее для планировщика / пайплайна).
+_ENTITY_FIELDS_HIDDEN_FROM_CLIENT: frozenset[str] = frozenset({"time_constraints", "date"})
+
+
+def _strip_internal_entity_fields_for_client(fields: dict[str, Any]) -> None:
+    for k in _ENTITY_FIELDS_HIDDEN_FROM_CLIENT:
+        fields.pop(k, None)
 
 
 def _normalize_event_fields_for_ui(fields: dict[str, Any]) -> None:
@@ -118,6 +125,7 @@ def build_ui_blocks(
                 for k, v in dt.items():
                     if v is not None and k not in fields:
                         fields[k] = v
+            _strip_internal_entity_fields_for_client(fields)
             et = str(ent.get("type") or data.get("entity_type") or "task")
             if ent.get("title"):
                 if et == "event" and "summary" not in fields:

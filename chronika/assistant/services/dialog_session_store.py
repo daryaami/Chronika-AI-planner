@@ -228,3 +228,65 @@ def run_assistant_ui_action(
         )
 
     return result, str(am.public_id), blocks
+
+
+def _message_to_history_item(msg: AssistantMessage) -> dict[str, Any]:
+    item: dict[str, Any] = {
+        "message_id": str(msg.public_id),
+        "role": msg.role,
+        "content": msg.content,
+        "created_at": msg.created_at.isoformat() if msg.created_at else None,
+    }
+    if msg.role == "assistant":
+        item["blocks"] = msg.blocks if isinstance(msg.blocks, list) else []
+        item["state"] = (msg.fsm_state or "").strip() or None
+        if isinstance(msg.metadata_json, dict) and msg.metadata_json:
+            item["metadata"] = msg.metadata_json
+    else:
+        item["blocks"] = []
+        if isinstance(msg.metadata_json, dict) and msg.metadata_json:
+            item["metadata"] = msg.metadata_json
+    return item
+
+
+def get_session_history_payload(user) -> dict[str, Any]:
+    """Полная история сообщений текущей сессии и актуальное состояние FSM."""
+    session = AssistantSession.objects.filter(user=user).first()
+    if session is None:
+        return {
+            "session_id": None,
+            "state": DialogState.IDLE.value,
+            "messages": [],
+        }
+    rows = list(session.messages.order_by("created_at"))
+    return {
+        "session_id": session.id,
+        "state": session.dialog_state,
+        "messages": [_message_to_history_item(m) for m in rows],
+    }
+
+
+def clear_user_assistant_session(user) -> dict[str, Any]:
+    """
+    Удаляет все сообщения сессии и сбрасывает FSM/план/контекст.
+    Строка AssistantSession сохраняется (OneToOne на пользователя).
+    """
+    with transaction.atomic():
+        session = AssistantSession.objects.select_for_update().filter(user=user).first()
+        if session is None:
+            return {"cleared": False, "messages_deleted": 0}
+        deleted, _ = AssistantMessage.objects.filter(session=session).delete()
+        session.dialog_state = DialogState.IDLE.value
+        session.action_plan = None
+        session.dialog_context = {}
+        session.last_referenced_id = None
+        session.save(
+            update_fields=[
+                "dialog_state",
+                "action_plan",
+                "dialog_context",
+                "last_referenced_id",
+                "updated_at",
+            ]
+        )
+        return {"cleared": True, "messages_deleted": deleted}

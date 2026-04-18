@@ -7,6 +7,8 @@ from rest_framework.views import APIView
 
 from assistant.pipeline_log import bind_context, clear_context, event, log_exception, new_request_id, pretty_data, trace
 from assistant.services.dialog_session_store import (
+    clear_user_assistant_session,
+    get_session_history_payload,
     run_assistant_turn_with_persisted_state,
     run_assistant_ui_action,
 )
@@ -145,5 +147,59 @@ class AssistantActionApi(APIView):
         except ValueError as exc:
             log_exception("api.action", "AssistantActionApi.post", exc)
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        finally:
+            clear_context()
+
+
+class AssistantHistoryApi(APIView):
+    """Полная история сообщений текущей сессии ассистента."""
+
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_description=(
+            "Все сообщения сессии в хронологическом порядке (user/assistant) "
+            "и актуальное state сессии."
+        ),
+        responses={200: openapi.Response("session_id, state, messages[]")},
+    )
+    def get(self, request, *args, **kwargs):
+        user = request.user
+        bind_context(
+            request_id=new_request_id(),
+            user_id=getattr(user, "id", None),
+            endpoint="AssistantHistoryApi.get",
+        )
+        try:
+            payload = get_session_history_payload(user)
+            trace("HTTP GET /assistant/history", response_json=pretty_data(payload))
+            return Response(payload, status=status.HTTP_200_OK)
+        finally:
+            clear_context()
+
+
+class AssistantClearChatApi(APIView):
+    """Полная очистка чата: сообщения, FSM, план, контекст."""
+
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_description=(
+            "Удаляет все сообщения текущей сессии и сбрасывает диалог: state=idle, "
+            "пустой план и контекст, last_referenced_id=null. Строка сессии сохраняется."
+        ),
+        responses={200: openapi.Response("cleared, messages_deleted")},
+    )
+    def post(self, request, *args, **kwargs):
+        user = request.user
+        bind_context(
+            request_id=new_request_id(),
+            user_id=getattr(user, "id", None),
+            endpoint="AssistantClearChatApi.post",
+        )
+        try:
+            summary = clear_user_assistant_session(user)
+            trace("HTTP POST /assistant/clear", response_json=pretty_data(summary))
+            return Response(summary, status=status.HTTP_200_OK)
         finally:
             clear_context()
