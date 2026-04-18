@@ -32,17 +32,16 @@ watch(
     :icon="checklistIcon"
   />
   <div class="tasks-page">
-    <div>
+    <div class="tasks-page__main">
       <TaskAddInput class="tasks-page__form"/>
       <TasksList
         v-model="activeTask"
       />
     </div>
-    <div v-if="activeTask">
-      <TaskCard :task="activeTask"
-                @close="activeTask = null"
-      />
-    </div>
+    <TaskCard v-if="activeTask"
+              :task="activeTask"
+              @close="activeTask = null"
+    />
   </div>
 </template>
 
@@ -52,11 +51,19 @@ watch(
   grid-template-columns: 1fr 1fr;
   gap: 24px;
 
-  height: 100%;
+  padding: 24px 30px 44px;
 
-  padding-bottom: 44px;
-  padding-left: 30px;
-  padding-right: 30px;
+  flex-shrink: 1;
+  flex-grow: 1;
+
+  min-height: 0;
+  overflow: hidden;
+
+  &__main {
+    width: 100%;
+    overflow: hidden;
+    min-width: 0;
+  }
 
   &__form {
     margin-bottom: 30px;

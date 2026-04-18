@@ -72,14 +72,14 @@ watch(
 
 watch(() => taskCopy.value.priority, () => updateTask(taskCopy.value))
 watch(() => taskCopy.value.completed, () => updateTask(taskCopy.value))
-
+watch(() => taskCopy.value.duration, () => updateTask(taskCopy.value))
 
 // Calendars
 const calendarsStore = useCalendarsStore()
 const calendars = ref<Calendar[]>([])
 
 onMounted(async ()=> {
-  calendars.value = await calendarsStore.getCalendars()
+  calendars.value = await calendarsStore.getOwnedCalendars()
 })
 
 const calendarsOptions = computed(() => {
@@ -204,6 +204,9 @@ const userCategoryIdModel = computed({
   padding: 30px;
   border-radius: 15px;
   height: 100%;
+
+  overflow: auto;
+
   width: 100%;
   box-shadow: 0 0 6px 0 rgba(0, 0, 0, 0.07);
   background: var(--bg-highlight);

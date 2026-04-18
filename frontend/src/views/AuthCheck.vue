@@ -10,7 +10,11 @@ const checkTokens = async () => {
   console.log('checkTokens')
   const isTokensValid = await authStore.checkTokens()
 
-  if (isTokensValid) await router.push('/planner')
+  if (isTokensValid) {
+    await router.push('/planner')
+  } else {
+    await router.push('/login/?consent=true')
+  }
 }
 
 onMounted(() => {

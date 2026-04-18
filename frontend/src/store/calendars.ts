@@ -65,6 +65,12 @@ export const useCalendarsStore = () => {
     }
   }
 
+  const getOwnedCalendars = async () => {
+    const allCalendars = await getCalendars();
+    return allCalendars.filter(calendar => calendar.owner);
+  }
 
-  return { getCalendars, getCalendarById, setUpdatedCalendars }
+
+
+  return { getCalendars, getCalendarById, setUpdatedCalendars, getOwnedCalendars }
 }
