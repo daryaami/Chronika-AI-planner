@@ -1,7 +1,7 @@
 from django.test import TestCase
 
 from assistant.domain.action_plan import Action, ActionPlan
-from assistant.domain.dialog import DialogIntent, ReplyInterpretation
+from assistant.domain.dialog import DialogIntent, NewIntentCandidate, ReplyInterpretation
 from assistant.fsm.states import DialogState
 from assistant.integrations.llm_client import LLMClientError
 from assistant.services.plan_merge import PlanMergeService
@@ -111,6 +111,29 @@ class ReplyInterpreterHeuristicTests(TestCase):
         r = svc.interpret(payload)
         self.assertEqual(r.dialog_intent, DialogIntent.MODIFY)
         self.assertEqual(len(r.step_patches), 1)
+
+    def test_modify_on_empty_plan_becomes_new_request(self):
+        """Как «Перенеси обед на попозже» при плане после сбоя — LLM не должен оставлять modify."""
+        llm = FakeLLM(
+            '{"dialog_intent":"modify","step_patches":['
+            '{"index":0,"merge":{"datetime":{"time":"попозже"}}}],'
+            '"target_ids":[],"new_intent_raw":null}'
+        )
+        svc = ReplyInterpreterService(llm_client=llm)
+        text = "Перенеси обед на попозже"
+        payload = ReplyInterpreterInput(
+            state=DialogState.WAITING_CLARIFICATION.value,
+            current_plan={"actions": [], "entities": []},
+            entities_in_context=[],
+            disambiguation_options=[],
+            last_referenced_id=4,
+            user_message=text,
+        )
+        r = svc.interpret(payload)
+        self.assertEqual(r.dialog_intent, DialogIntent.NEW_REQUEST)
+        self.assertEqual(r.new_intent_candidate, NewIntentCandidate(raw=text))
+        self.assertEqual(r.step_patches, [])
+        self.assertEqual(r.actions, [])
 
     def test_llm_failure_raises_after_retry(self):
         class BoomLLM:

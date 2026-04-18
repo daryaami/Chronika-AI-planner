@@ -7,7 +7,7 @@ from assistant.domain.action_plan import Action, ActionPlan
 from assistant.fsm.states import DialogState
 from assistant.integrations.embeddings_model import EmbeddingsModelProvider
 from assistant.services.intent_parser import normalize_action_code
-from assistant.services.semantic_search import SemanticSearchService
+from assistant.services.semantic_search import SemanticSearchCandidate, SemanticSearchService
 
 
 @dataclass(frozen=True)
@@ -25,6 +25,31 @@ class SearchStageService:
 
     def __init__(self, semantic_search: SemanticSearchService | None = None):
         self.semantic_search = semantic_search or SemanticSearchService()
+
+    @staticmethod
+    def _disambiguation_option(entity_ctx: str, i: int, c: SemanticSearchCandidate) -> dict[str, Any]:
+        """Поля для UI: имя и (для события) время начала/конца — из ORM-объекта кандидата."""
+        payload = c.payload
+        row: dict[str, Any] = {
+            "index": i,
+            "entity_type": c.entity_type,
+            "object_id": c.object_id,
+            "similarity": c.similarity,
+            "context_id": f"{entity_ctx}_c{i}",
+        }
+        if c.entity_type == "event":
+            title = (getattr(payload, "summary", None) or "").strip()
+            row["title"] = title or f"event #{c.object_id}"
+            st = getattr(payload, "start", None)
+            en = getattr(payload, "end", None)
+            row["start"] = st.isoformat() if st else None
+            row["end"] = en.isoformat() if en else None
+        else:
+            title = (getattr(payload, "title", None) or "").strip()
+            row["title"] = title or f"task #{c.object_id}"
+            due = getattr(payload, "due_date", None)
+            row["due_date"] = due.isoformat() if due else None
+        return row
 
     def resolve_targets_in_plan(self, *, user, plan: ActionPlan) -> SearchStageResult:
         if not plan.actions:
@@ -106,27 +131,13 @@ class SearchStageService:
                 if idx < len(working.entities)
                 else f"e{idx}"
             )
-            options = tuple(
-                {
-                    "index": i,
-                    "entity_type": c.entity_type,
-                    "object_id": c.object_id,
-                    "similarity": c.similarity,
-                    "context_id": f"{entity_ctx}_c{i}",
-                }
-                for i, c in enumerate(candidates)
-            )
+            options_list: list[dict[str, Any]] = []
             titles: list[str] = []
-            for c in candidates:
-                payload = getattr(c, "payload", None)
-                title = ""
-                if payload is not None:
-                    title = str(
-                        getattr(payload, "title", None)
-                        or getattr(payload, "summary", "")
-                        or ""
-                    )
-                titles.append(title or f"{c.entity_type} #{c.object_id}")
+            for i, c in enumerate(candidates):
+                opt = SearchStageService._disambiguation_option(entity_ctx, i, c)
+                options_list.append(opt)
+                titles.append(str(opt.get("title") or f"{c.entity_type} #{c.object_id}"))
+            options = tuple(options_list)
 
             hint = "Несколько совпадений: " + "; ".join(
                 f"{i + 1}) {titles[i]}" for i in range(len(titles))

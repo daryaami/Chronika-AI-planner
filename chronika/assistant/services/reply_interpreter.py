@@ -344,6 +344,7 @@ class ReplyInterpreterService:
             raise err
 
         result = self._normalize_llm_payload(data, payload.state, payload.user_message)
+        result = self._coerce_modify_when_plan_has_no_actions(result, payload)
         print(
             f"[ReplyInterpreter] LLM parse success: intent={result.dialog_intent.value}, "
             f"target_ids={result.target_ids}, step_patches={len(result.step_patches)}, "
@@ -359,6 +360,37 @@ class ReplyInterpreterService:
             интерпретация_json=pretty_data(interpretation_to_dict(result)),
         )
         return result
+
+    @staticmethod
+    def _plan_action_count(payload: ReplyInterpreterInput) -> int:
+        plan = payload.current_plan if isinstance(payload.current_plan, dict) else {}
+        acts = plan.get("actions")
+        return len(acts) if isinstance(acts, list) else 0
+
+    @staticmethod
+    def _coerce_modify_when_plan_has_no_actions(
+        result: ReplyInterpretation, payload: ReplyInterpreterInput
+    ) -> ReplyInterpretation:
+        """
+        LLM иногда возвращает modify+step_patches при пустом плане; merge тогда даёт пустой план
+        и ложное «план обновлён». Перенаправляем в new_request по тексту пользователя.
+        """
+        if result.dialog_intent != DialogIntent.MODIFY:
+            return result
+        if ReplyInterpreterService._plan_action_count(payload) > 0:
+            return result
+        if not (result.step_patches or result.actions):
+            return result
+        um = (payload.user_message or "").strip()
+        if not um:
+            return ReplyInterpreterService._unclear()
+        return ReplyInterpretation(
+            dialog_intent=DialogIntent.NEW_REQUEST,
+            actions=[],
+            target_ids=[],
+            new_intent_candidate=NewIntentCandidate(raw=um),
+            step_patches=[],
+        )
 
     @staticmethod
     def _safe_parse_json(raw_text: str) -> dict[str, Any] | None:

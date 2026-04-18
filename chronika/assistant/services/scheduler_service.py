@@ -59,6 +59,18 @@ def _schedule_view(fields: dict[str, Any], dt: dict[str, Any]) -> dict[str, Any]
     return out
 
 
+def _scheduling_relevant(sched: dict[str, Any]) -> bool:
+    """Есть ли в объединённом datetime/fields что-то, ради чего нужен подбор слота."""
+    if not isinstance(sched, dict) or not sched:
+        return False
+    if sched.get("start_at") or sched.get("end_at"):
+        return True
+    if sched.get("date") or sched.get("date_from") or sched.get("date_to"):
+        return True
+    tc = sched.get("time_constraints")
+    return isinstance(tc, dict) and bool(tc)
+
+
 def _user_tz(user: Any) -> tzinfo:
     """IANA TZ из профиля; иначе активная TZ Django (settings.TIME_ZONE)."""
     raw = getattr(user, "time_zone", None) if user is not None else None
@@ -173,6 +185,74 @@ def _duration_minutes(fields: dict[str, Any], dt: dict[str, Any]) -> int:
     return 30
 
 
+def _event_duration_minutes_for_user(user: Any, event_id: int) -> int | None:
+    """Длительность существующего события (как в календаре), для переноса без смены длины."""
+    from events.models import Event
+
+    ev = (
+        Event.objects.filter(
+            id=event_id,
+            user_calendar__user_id=getattr(user, "id", None),
+            start__isnull=False,
+            end__isnull=False,
+        )
+        .only("start", "end")
+        .first()
+    )
+    if ev is None:
+        return None
+    user_tz = _user_tz(user)
+    a, b = ev.start, ev.end
+    if a is None or b is None or a >= b:
+        return None
+    if timezone.is_naive(a):
+        a = timezone.make_aware(a, user_tz)
+    if timezone.is_naive(b):
+        b = timezone.make_aware(b, user_tz)
+    mins = int((b - a).total_seconds() // 60)
+    if mins >= MIN_DURATION_MINUTES:
+        return mins
+    return None
+
+
+def _duration_for_scheduling(
+    *,
+    action: Action,
+    user: Any,
+    code: str,
+    et_s: str,
+    fields: dict[str, Any],
+    sched: dict[str, Any],
+    data: dict[str, Any],
+) -> int:
+    """
+    Для переноса события (update + target_id) длина слота = текущая длительность в БД,
+    а не duration из LLM (парсер часто подставляет оценку). Конец после выбора слота
+    по-прежнему start + эта длительность.
+
+    Если в плане уже явные start_at и end_at — берём длительность из них (смена длины встречи).
+    """
+    user_tz = _user_tz(user)
+    sa = _parse_iso_dt(sched.get("start_at"), user_tz)
+    se = _parse_iso_dt(sched.get("end_at"), user_tz)
+    if sa is not None and se is not None and se > sa:
+        explicit = int((se - sa).total_seconds() // 60)
+        if explicit >= MIN_DURATION_MINUTES:
+            return explicit
+
+    if code == "update" and et_s == "event" and action.target_id is not None:
+        db_mins = _event_duration_minutes_for_user(user, int(action.target_id))
+        if db_mins is not None:
+            new_fields = dict(data.get("fields") or {})
+            new_fields.pop("duration", None)
+            data["fields"] = new_fields
+            new_dt = dict(data.get("datetime") or {})
+            new_dt.pop("duration", None)
+            data["datetime"] = new_dt
+            return db_mins
+    return _duration_minutes(fields, sched)
+
+
 def _due_datetime_cap(fields: dict[str, Any], dt: dict[str, Any], user_tz: tzinfo) -> datetime_cls | None:
     raw = None
     if isinstance(fields, dict) and fields.get("due_date") is not None:
@@ -257,6 +337,9 @@ class SchedulerService:
     2) Без точного start_at — поиск слотов; все кандидаты в лог, один выбирается случайно → в план.
     3) Точное время не удалось сохранить (календарь / due) — до MAX_SLOT_OPTIONS вариантов
        в time_slot_selection для ручного выбора.
+
+    Для action=update то же самое, если в datetime/fields есть окно/даты/time_constraints
+    (перенос времени существующей задачи/события после intent parser).
     """
 
     def apply_to_plan(self, user, plan: ActionPlan) -> tuple[ActionPlan, str | None]:
@@ -277,13 +360,27 @@ class SchedulerService:
         et_s = str(et).lower() if et is not None else ""
         if et_s not in ("event", "task"):
             return _ScheduleOutcome(action)
-        if code not in ("create", "schedule"):
-            return _ScheduleOutcome(action)
 
         fields = dict(data.get("fields") or {})
         dt = dict(data.get("datetime") or {})
         sched = _schedule_view(fields, dt)
-        duration = _duration_minutes(fields, sched)
+
+        if code not in ("create", "schedule"):
+            if code != "update" or not _scheduling_relevant(sched):
+                return _ScheduleOutcome(action)
+
+        duration = _duration_for_scheduling(
+            action=action,
+            user=user,
+            code=code,
+            et_s=et_s,
+            fields=fields,
+            sched=sched,
+            data=data,
+        )
+        fields = dict(data.get("fields") or {})
+        dt = dict(data.get("datetime") or {})
+        sched = _schedule_view(fields, dt)
         tc = (
             sched.get("time_constraints")
             if isinstance(sched.get("time_constraints"), dict)

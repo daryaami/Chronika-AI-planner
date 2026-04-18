@@ -96,13 +96,18 @@ def build_ui_blocks(
             if oid is None:
                 continue
             et = str(o.get("entity_type") or "task")
-            title = f"{et} #{oid}"
+            title = str(o.get("title") or "").strip() or f"{et} #{oid}"
             row: dict[str, Any] = {
                 "id": int(oid),
                 "entity_type": et,
                 "context_id": str(o.get("context_id") or f"pick_{o.get('index', 0)}"),
                 "title": title,
             }
+            if et == "event":
+                row["start"] = o.get("start")
+                row["end"] = o.get("end")
+            elif o.get("due_date") is not None:
+                row["due_date"] = o.get("due_date")
             entities.append(row)
         if entities:
             blocks.append({"type": "entity_selection", "entities": entities})

@@ -35,6 +35,7 @@ class FsmTurnResult:
 class FsmMachine:
     """
     Управляющий слой: idle → Intent Parser + Search stage; иначе Reply Interpreter + merge/execute.
+    Исключение: не-idle, но план без шагов — снова idle и Intent Parser (реплика как новая команда).
     """
 
     def __init__(
@@ -129,6 +130,21 @@ class FsmMachine:
             return self._handle_idle(user=user, user_message=user_message, snapshot=idle_snap)
 
         plan = snapshot.plan
+        # Пустой план при waiting_clarification и т.п. (часто после «не удалось сформировать план»):
+        # шагов нечего уточнять через Reply Interpreter — следующая реплика = новая команда с нуля.
+        if forced_interpretation is None and not plan.actions:
+            idle_snap = replace(
+                snapshot,
+                state=DialogState.IDLE,
+                plan=None,
+                context=replace(snapshot.context, disambiguation_options=[]),
+            )
+            trace(
+                "FSM (диалог): в плане нет шагов — idle и Intent Parser (как новое сообщение)",
+                предыдущее_состояние=snapshot.state.value,
+            )
+            return self._handle_idle(user=user, user_message=user_message, snapshot=idle_snap)
+
         if forced_interpretation is not None:
             interpretation = forced_interpretation
             trace(
