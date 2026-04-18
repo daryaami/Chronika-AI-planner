@@ -1,0 +1,220 @@
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, replace
+
+from assistant.domain.action_plan import ActionPlan, action_plan_to_dict
+from assistant.domain.context import StructuredContext
+from assistant.domain.dialog import DialogIntent
+from assistant.fsm.states import DialogState
+from assistant.services.action_plan_adapter import parsed_intents_to_action_plan
+from assistant.services.intent_parser import IntentParserService
+from assistant.services.plan_executor import PlanExecutorService
+from assistant.services.plan_merge import PlanMergeService
+from assistant.services.reply_interpreter import ReplyInterpreterInput, ReplyInterpreterService
+from assistant.services.search_stage import SearchStageService
+
+
+@dataclass
+class DialogSessionSnapshot:
+    state: DialogState
+    plan: ActionPlan | None
+    context: StructuredContext
+    last_referenced_id: int | None = None
+
+
+@dataclass(frozen=True)
+class FsmTurnResult:
+    snapshot: DialogSessionSnapshot
+    assistant_reply: str
+    pending_followup_message: str | None = None
+    execution_artifact: dict | None = None
+
+
+class FsmMachine:
+    """
+    Управляющий слой: idle → Intent Parser + Search stage; иначе Reply Interpreter + merge/execute.
+    """
+
+    def __init__(
+        self,
+        intent_parser: IntentParserService | None = None,
+        reply_interpreter: ReplyInterpreterService | None = None,
+        plan_merge: PlanMergeService | None = None,
+        search_stage: SearchStageService | None = None,
+        executor: PlanExecutorService | None = None,
+    ):
+        self.intent_parser = intent_parser or IntentParserService()
+        self.reply_interpreter = reply_interpreter or ReplyInterpreterService()
+        self.plan_merge = plan_merge or PlanMergeService()
+        self.search_stage = search_stage or SearchStageService()
+        self.executor = executor or PlanExecutorService()
+
+    def run_turn(
+        self,
+        *,
+        user,
+        user_message: str,
+        snapshot: DialogSessionSnapshot,
+    ) -> FsmTurnResult:
+        if snapshot.state == DialogState.IDLE:
+            return self._handle_idle(user=user, user_message=user_message, snapshot=snapshot)
+        return self._handle_dialog(user=user, user_message=user_message, snapshot=snapshot)
+
+    def _handle_idle(self, *, user, user_message: str, snapshot: DialogSessionSnapshot) -> FsmTurnResult:
+        parsed = self.intent_parser.parse(user_message)
+        plan = parsed_intents_to_action_plan(parsed.items)
+        search = self.search_stage.resolve_targets_in_plan(user=user, plan=plan)
+
+        ctx = snapshot.context
+        if search.next_state == DialogState.DISAMBIGUATION:
+            ctx = replace(ctx, disambiguation_options=list(search.disambiguation_options))
+        else:
+            ctx = replace(ctx, disambiguation_options=[])
+
+        new_snapshot = DialogSessionSnapshot(
+            state=search.next_state,
+            plan=search.plan,
+            context=self._sync_last_interaction(ctx, search.plan),
+            last_referenced_id=self._primary_target_id(search.plan) or snapshot.last_referenced_id,
+        )
+
+        return FsmTurnResult(
+            snapshot=new_snapshot,
+            assistant_reply=search.assistant_hint or "",
+        )
+
+    def _handle_dialog(self, *, user, user_message: str, snapshot: DialogSessionSnapshot) -> FsmTurnResult:
+        if snapshot.plan is None:
+            idle_snap = replace(snapshot, state=DialogState.IDLE, plan=None)
+            return self._handle_idle(user=user, user_message=user_message, snapshot=idle_snap)
+
+        plan = snapshot.plan
+        interpretation = self.reply_interpreter.interpret(
+            ReplyInterpreterInput(
+                state=snapshot.state.value,
+                current_plan=action_plan_to_dict(plan),
+                entities_in_context=[asdict(e) for e in plan.entities],
+                disambiguation_options=list(snapshot.context.disambiguation_options),
+                last_referenced_id=snapshot.last_referenced_id,
+                user_message=user_message,
+            )
+        )
+
+        if interpretation.dialog_intent == DialogIntent.CANCEL:
+            return FsmTurnResult(
+                snapshot=self._clear_session(snapshot),
+                assistant_reply="Сценарий отменён.",
+            )
+
+        if interpretation.dialog_intent == DialogIntent.REJECT:
+            return FsmTurnResult(
+                snapshot=self._clear_session(snapshot),
+                assistant_reply="Хорошо, не выполняю.",
+            )
+
+        if interpretation.dialog_intent == DialogIntent.NEW_REQUEST:
+            follow = (
+                interpretation.new_intent_candidate.raw.strip()
+                if interpretation.new_intent_candidate
+                else ""
+            )
+            if not follow:
+                follow = user_message.strip()
+            cleared = self._clear_session(snapshot)
+            return FsmTurnResult(
+                snapshot=cleared,
+                assistant_reply="",
+                pending_followup_message=follow or None,
+            )
+
+        if (
+            interpretation.dialog_intent == DialogIntent.SELECT
+            and snapshot.state == DialogState.DISAMBIGUATION
+            and interpretation.target_ids
+        ):
+            merged = self.plan_merge.apply_reply(plan, interpretation)
+            ctx = replace(snapshot.context, disambiguation_options=[])
+            new_snapshot = DialogSessionSnapshot(
+                state=DialogState.WAITING_CONFIRMATION,
+                plan=merged,
+                context=self._sync_last_interaction(ctx, merged),
+                last_referenced_id=interpretation.target_ids[0],
+            )
+            return FsmTurnResult(
+                snapshot=new_snapshot,
+                assistant_reply="Выбор зафиксирован. Подтвердите выполнение.",
+            )
+
+        if interpretation.dialog_intent == DialogIntent.CONFIRM:
+            merged = self.plan_merge.apply_reply(plan, interpretation)
+            artifact = self.executor.execute(user_id=user.id, plan=merged)
+            ctx = self._sync_last_interaction(
+                replace(snapshot.context, disambiguation_options=[]),
+                merged,
+            )
+            pending = (
+                interpretation.new_intent_candidate.raw
+                if interpretation.new_intent_candidate
+                else None
+            )
+            cleared = DialogSessionSnapshot(
+                state=DialogState.IDLE,
+                plan=None,
+                context=ctx,
+                last_referenced_id=snapshot.last_referenced_id,
+            )
+            return FsmTurnResult(
+                snapshot=cleared,
+                assistant_reply="Готово.",
+                pending_followup_message=(pending.strip() if pending else None),
+                execution_artifact=artifact,
+            )
+
+        if interpretation.dialog_intent == DialogIntent.MODIFY and (
+            interpretation.actions or interpretation.step_patches
+        ):
+            merged = self.plan_merge.apply_reply(plan, interpretation)
+            new_snapshot = DialogSessionSnapshot(
+                state=DialogState.WAITING_CONFIRMATION,
+                plan=merged,
+                context=self._sync_last_interaction(snapshot.context, merged),
+                last_referenced_id=snapshot.last_referenced_id,
+            )
+            return FsmTurnResult(
+                snapshot=new_snapshot,
+                assistant_reply="План обновлён. Подтвердите выполнение.",
+            )
+
+        return FsmTurnResult(
+            snapshot=snapshot,
+            assistant_reply="Нужно уточнение: переформулируйте или ответьте на вопрос выше.",
+        )
+
+    @staticmethod
+    def _primary_target_id(plan: ActionPlan | None) -> int | None:
+        if not plan:
+            return None
+        for action in plan.actions:
+            if action.target_id is not None:
+                return int(action.target_id)
+        return None
+
+    @staticmethod
+    def _sync_last_interaction(ctx: StructuredContext, plan: ActionPlan | None) -> StructuredContext:
+        if not plan:
+            return ctx
+        li = ctx.last_interaction
+        li.last_entities = [asdict(e) for e in plan.entities]
+        li.last_actions = [asdict(a) for a in plan.actions]
+        li.last_target_ids = [int(a.target_id) for a in plan.actions if a.target_id is not None]
+        return ctx
+
+    @staticmethod
+    def _clear_session(snapshot: DialogSessionSnapshot) -> DialogSessionSnapshot:
+        ctx = replace(snapshot.context, disambiguation_options=[])
+        return DialogSessionSnapshot(
+            state=DialogState.IDLE,
+            plan=None,
+            context=ctx,
+            last_referenced_id=snapshot.last_referenced_id,
+        )

@@ -6,14 +6,17 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from assistant.serializers import AssistantOrchestratorResponseSerializer
-from assistant.services.chat_orchestrator import ChatOrchestratorService
+from assistant.services.dialog_session_store import run_assistant_turn_with_persisted_state
 
 
 class AssistantMessageApi(APIView):
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
-        operation_description="Основной эндпоинт ассистента для приема сообщения пользователя",
+        operation_description=(
+            "Сообщение ассистенту: полный путь FSM. Состояние диалога хранится в Postgres "
+            "(сессия на пользователя), клиент передаёт только текст сообщения."
+        ),
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
             required=["message"],
@@ -26,30 +29,25 @@ class AssistantMessageApi(APIView):
         ),
         responses={
             200: openapi.Response(
-                description="Временный ответ (эндпоинт-заглушка)",
+                description="Ответ ассистента, интенты и текущий action_plan",
                 examples={
                     "application/json": {
                         "message": "",
-                        "assistant_reply": "",
+                        "assistant_reply": "Подтвердите, пожалуйста, или скорректируйте детали.",
                         "user_id": 1,
-                        "candidates": [
-                            {
-                                "entity_type": "event",
-                                "object_id": 123,
-                                "similarity": 0.812345,
-                                "payload": {
-                                    "summary": "Встреча с командой",
-                                    "description": "Подготовить демо",
-                                    "start": "2026-04-09T18:00:00Z",
-                                    "end": "2026-04-09T19:00:00Z",
-                                },
-                            }
-                        ],
+                        "state": "waiting_confirmation",
+                        "action_plan": {
+                            "actions": [],
+                            "entities": [],
+                        },
+                        "context": {"last_interaction": {}, "disambiguation_options": []},
+                        "last_referenced_id": None,
+                        "execution_artifact": None,
                         "intents": [
                             {
                                 "item_index": 0,
-                                "intent": {
-                                    "intent": "update",
+                                "step": {
+                                    "action": "update",
                                     "entity_type": "event",
                                     "query": {"summary": "Встреча с командой"},
                                     "fields": {},
@@ -57,19 +55,7 @@ class AssistantMessageApi(APIView):
                                     "meta": {},
                                     "filters": {},
                                 },
-                                "candidates": [
-                                    {
-                                        "entity_type": "event",
-                                        "object_id": 123,
-                                        "similarity": 0.812345,
-                                        "payload": {
-                                            "summary": "Встреча с командой",
-                                            "description": "Подготовить демо",
-                                            "start": "2026-04-09T18:00:00Z",
-                                            "end": "2026-04-09T19:00:00Z",
-                                        },
-                                    }
-                                ],
+                                "candidates": [],
                             }
                         ],
                     }
@@ -90,10 +76,6 @@ class AssistantMessageApi(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        orchestrator_result = ChatOrchestratorService().process_message(
-            user_id=user.id,
-            message=message,
-        )
-
+        orchestrator_result = run_assistant_turn_with_persisted_state(user, message)
         response_payload = AssistantOrchestratorResponseSerializer.from_result(orchestrator_result)
         return Response(response_payload, status=status.HTTP_200_OK)

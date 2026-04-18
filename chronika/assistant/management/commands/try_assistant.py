@@ -9,8 +9,8 @@ from assistant.services.intent_parser import IntentParserService
 
 class Command(BaseCommand):
     help = (
-        "Parse user text with IntentParserService (real Mistral API). "
-        "Requires MISTRAL_API_KEY in the environment."
+        "Разбор реплики через IntentParserService (шаги action = типы Action Plan). "
+        "Нужен MISTRAL_API_KEY."
     )
 
     def add_arguments(self, parser):
