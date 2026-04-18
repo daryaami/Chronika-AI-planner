@@ -17,6 +17,7 @@
 
   --text-secondary-muted: #d9d9d9;
 
+
   --icon-hover: #3b61e8;
 
   --icon-disabled: #c5c5c5;
@@ -47,4 +48,6 @@
   --medium: #FFAA0D;
 
   --text-error: #e90606;
+
+  --robot-gray: #e2e5ee;
 }

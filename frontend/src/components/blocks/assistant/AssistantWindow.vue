@@ -4,6 +4,8 @@ import { ref, onMounted, onUnmounted } from "vue";
 import IconBtn from "@/components/ui-kit/btns/IconBtn.vue";
 import { useClickOutside } from "@/components/composables/useClickOutside";
 import ChatTextInput from "@/components/ui-kit/inputs/ChatTextInput.vue";
+import {useChatStore} from "@/store/chat";
+import AssistantChat from "@/components/blocks/assistant/AssistantChat.vue";
 
 const isOpen = ref<boolean>(false);
 const bodyRef = ref<HTMLElement | null>(null);
@@ -25,6 +27,13 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener("keydown", handleKeydown);
 });
+
+// Chat
+const chatStore = useChatStore()
+
+const messageSubmitHandler = (message: string) => {
+  chatStore.sendMessage(message);
+}
 </script>
 
 <template>
@@ -38,7 +47,7 @@ onUnmounted(() => {
           size="s"
           @click="isOpen = false"
       />
-      <div>
+      <div v-if="!chatStore.messages.length">
         <span class="assistant-window__title">Твой ассистент на связи!</span>
         <div class="assistant-window__examples">
           <div class="assistant-window__example">
@@ -71,10 +80,16 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <ChatTextInput class="assistant-window__input" />
+      <AssistantChat v-else />
+
+      <ChatTextInput class="assistant-window__input"
+                     @submit="messageSubmitHandler"
+      />
     </div>
     <AssistantIcon class="assistant-window__icon"
-                   @click="isOpen = true" />
+                   :class="isOpen && chatStore.messages.length ? 'hidden' : ''"
+                   @click="isOpen = true"
+    />
 
   </div>
 </template>
@@ -124,6 +139,11 @@ onUnmounted(() => {
     bottom: 0;
 
     transition: right .3s, bottom .3s;
+
+    &.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
   }
 
   &__close {
