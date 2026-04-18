@@ -64,8 +64,16 @@ defineExpose({ open, close });
     <form @submit.prevent="onSubmit">
 
       <div class="event-create-popup__header">
-        <IconBtn icon="delete" size="s" variant="secondary" />
-        <IconBtn icon="cross" size="s" @click="close" />
+        <IconBtn icon="delete"
+                 size="s"
+                 variant="secondary"
+                 type="button"
+        />
+        <IconBtn icon="cross"
+                 size="s"
+                 @click="close"
+                 type="button"
+        />
       </div>
 
       <TextTitleInput

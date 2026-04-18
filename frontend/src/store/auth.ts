@@ -2,10 +2,13 @@ import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import { useRouter } from 'vue-router'
 import { BASE_API_URL } from '@/config'
+import {useToastStore} from "@/store/toast";
 
 export const useAuthStore = defineStore('access-token', () => {
   const accessToken = ref<string | null>(null)
   const router = useRouter()
+
+  const toastStore = useToastStore()
 
   const setAccessToken = (newAccessToken: string) => {
     accessToken.value = newAccessToken
@@ -55,6 +58,7 @@ export const useAuthStore = defineStore('access-token', () => {
         await router.push('/login/')
         throw new Error('Redirected to login due to refresh JWT error')
       } else {
+        toastStore.addToast('Обновите разрешения от Google', 3000)
         await router.push('/login/?consent=true')
         throw new Error(`Redirected to login due to ${data.code}`)
       }
@@ -78,6 +82,7 @@ export const useAuthStore = defineStore('access-token', () => {
       })
 
       const response = await ensureAuthorizedRequest(fetchFn)
+
       return response.status === 200
     } else {
       await refreshAccessToken()
