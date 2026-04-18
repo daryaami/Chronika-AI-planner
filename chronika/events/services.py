@@ -3,7 +3,7 @@ import re
 import requests
 from datetime import datetime, time
 from google_auth.services import get_user_credentials
-from core.exceptions import EventNotFoundError, GoogleNetworkError
+from core.exceptions import CalendarWriteAccessDeniedError, EventNotFoundError, GoogleNetworkError
 from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
@@ -457,6 +457,10 @@ class GoogleCalendarService:
             event = service.events().insert(calendarId=google_calendar_id, body=event_data).execute()
             return event
         except HttpError as e:
+            if self._is_calendar_write_access_denied(e):
+                raise CalendarWriteAccessDeniedError(
+                    "Нет прав на запись в выбранный календарь. Выберите календарь, где у вас есть writer-доступ."
+                )
             raise EventNotFoundError(f"Ошибка при создании события: {str(e)}")
 
     def update_event(self, user, google_calendar_id, event_id, event_data):
@@ -473,6 +477,10 @@ class GoogleCalendarService:
             ).execute()
             return patched
         except HttpError as e:
+            if self._is_calendar_write_access_denied(e):
+                raise CalendarWriteAccessDeniedError(
+                    "Нет прав на запись в выбранный календарь. Выберите календарь, где у вас есть writer-доступ."
+                )
             raise EventNotFoundError(f"Ошибка при обновлении события: {str(e)}")
 
     def delete_event(self, user, google_calendar_id, event_id):
@@ -484,7 +492,19 @@ class GoogleCalendarService:
             service = self._build_google_service(user)
             service.events().delete(calendarId=google_calendar_id, eventId=event_id).execute()
         except HttpError as e:
+            if self._is_calendar_write_access_denied(e):
+                raise CalendarWriteAccessDeniedError(
+                    "Нет прав на запись в выбранный календарь. Выберите календарь, где у вас есть writer-доступ."
+                )
             raise EventNotFoundError(f"Ошибка при удалении события: {str(e)}")
+
+    @staticmethod
+    def _is_calendar_write_access_denied(error: HttpError) -> bool:
+        status = getattr(getattr(error, "resp", None), "status", None)
+        if status != 403:
+            return False
+        message = str(error)
+        return "requiredAccessLevel" in message or "writer access" in message
 
 def add_event_extended_properties(event: dict, task_id: int | None = None):
     """

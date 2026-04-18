@@ -9,7 +9,7 @@ from rest_framework.test import APITestCase
 from core.enums import EmbeddingStatus
 from events.models import Event, UserCalendar
 from events.services import GoogleCalendarService
-from core.exceptions import GoogleRefreshTokenError
+from core.exceptions import CalendarWriteAccessDeniedError, GoogleRefreshTokenError
 
 
 def _recreate_user_calendars_after_sync(user):
@@ -369,6 +369,27 @@ class EventEndpointsTests(APITestCase):
         created = Event.objects.get(google_event_id="created-evt-1")
         self.assertEqual(created.embedding_status, "PENDING")
         mocked_delay.assert_called_once_with(created.id)
+
+    @patch(
+        "events.apis.GoogleCalendarService.create_event",
+        side_effect=CalendarWriteAccessDeniedError(),
+    )
+    def test_create_event_returns_404_when_calendar_has_no_writer_access(self, _):
+        url = reverse("calendar_events")
+        response = self.client.post(
+            url,
+            {
+                "summary": "Created event",
+                "user_calendar_id": self.selected_calendar.id,
+                "start": {"dateTime": "2026-03-20T10:00:00+00:00"},
+                "end": {"dateTime": "2026-03-20T11:00:00+00:00"},
+                "description": "Created description",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.data["code"], "calendar_write_access_denied")
 
     @patch("events.services.generate_event_embedding.delay")
     @patch("events.apis.GoogleCalendarService.update_event")

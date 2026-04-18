@@ -11,9 +11,14 @@ from assistant.integrations.llm_client import LLMClientError, MistralLLMClient
 
 logger = logging.getLogger(__name__)
 
+def normalize_action_code(raw: str | None) -> str:
+    """Только нормализация строки: допустимые коды — ровно Action.type из схемы (без синонимов)."""
+    return str(raw or "").strip().lower()
+
 
 @dataclass
-class IntentDefinition:
+class ActionDefinition:
+    """Описание одного допустимого значения поля action (тип шага = Action.type в Action Plan)."""
     code: str
     description: str
     required_fields: list[str] = field(default_factory=list)
@@ -21,8 +26,8 @@ class IntentDefinition:
 
 @dataclass
 class ParsedIntent:
-    """Одно намерение (один шаг)."""
-    intent: str
+    """Один шаг: тип действия совпадает с Action.type в Action Plan (поле action)."""
+    action: str
     entity_type: str | None
     query: dict[str, Any] | None
     fields: dict[str, Any]
@@ -33,44 +38,39 @@ class ParsedIntent:
 
 @dataclass
 class ParsedIntentResult:
-    """Результат разбора: одно или несколько намерений в порядке упоминания в тексте."""
+    """Результат разбора: шаги (action) в порядке упоминания в тексте."""
 
     items: list[ParsedIntent]
     raw_response: str | None = None
 
 
-DEFAULT_INTENTS: list[IntentDefinition] = [
-    IntentDefinition(
+DEFAULT_ACTIONS: list[ActionDefinition] = [
+    ActionDefinition(
         code="create",
         description="Создать новую задачу или событие.",
         required_fields=["fields.title или query"],
     ),
-    IntentDefinition(
-        code="plan",
-        description="Запланировать сущность на время/дату.",
-        required_fields=["query"],
+    ActionDefinition(
+        code="schedule",
+        description="Назначить время существующей задаче/событию или перенести время.",
+        required_fields=["query (если объект уже существует)"],
     ),
-    IntentDefinition(
+    ActionDefinition(
         code="update",
         description="Изменить поля существующей сущности.",
         required_fields=["query"],
     ),
-    IntentDefinition(
-        code="reschedule",
-        description="Перенести время уже запланированного события (event) на другое время/дату.",
-        required_fields=["query"],
-    ),
-    IntentDefinition(
+    ActionDefinition(
         code="delete",
         description="Удалить существующую сущность.",
         required_fields=["query"],
     ),
-    IntentDefinition(
-        code="get",
-        description="Получить список/сводку сущностей по фильтрам.",
+    ActionDefinition(
+        code="retrieve",
+        description="Найти, показать список или сводку задач/событий по фильтрам.",
         required_fields=[],
     ),
-    IntentDefinition(
+    ActionDefinition(
         code="other",
         description="Прочие сообщения, не относящиеся к задачам/событиям.",
         required_fields=[],
@@ -80,21 +80,19 @@ DEFAULT_INTENTS: list[IntentDefinition] = [
 
 class IntentParserService:
     """
-    Service-level intent parser.
-
-    Responsibilities:
-    - build prompt from intent definitions
-    - call LLM client
-    - parse/normalize JSON response
+    Парсер первого уровня: шаги с полем action, совпадающим с Action.type в Action Plan
+    (create | schedule | update | delete | retrieve | other).
     """
 
     def __init__(
         self,
         llm_client: MistralLLMClient | None = None,
-        intents: list[IntentDefinition] | None = None,
+        actions: list[ActionDefinition] | None = None,
+        *,
+        intents: list[ActionDefinition] | None = None,
     ):
         self.llm_client = llm_client or MistralLLMClient()
-        self.intents = intents or DEFAULT_INTENTS
+        self._action_definitions = actions or intents or DEFAULT_ACTIONS
 
     def parse(self, user_text: str) -> ParsedIntentResult:
         messages = self._build_messages(user_text)
@@ -209,18 +207,21 @@ class IntentParserService:
         )
 
     def _build_messages(self, user_text: str) -> list[dict[str, str]]:
-        intents_schema = self._render_intents_schema()
+        actions_schema = self._render_actions_schema()
         system_prompt = (
             "Ты Intent Parser для системы задач и календаря.\n"
             "Твоя задача — только структурировать запрос пользователя в JSON, без принятия решений.\n"
-            "Верни строго JSON без markdown и без пояснений.\n"
-            "Используй только интенты из списка ниже.\n"
+            "Верни строго один JSON-объект без markdown, без комментариев и без текста вокруг.\n"
+            "Каждый шаг имеет поле action — это то же значение, что поле type у Action в Action Plan.\n"
+            "Допустимы только такие строки для action (ровно в нижнем регистре): "
+            "create, schedule, update, delete, retrieve, other.\n"
+            "В каждом шаге обязателен ключ action (не используй другие имена для типа шага).\n"
             "Если определить значение нельзя, заполняй null, пустым объектом {} или unknown.\n"
             "Если пользователь говорит о существующей сущности, обязательно заполни query.\n"
             "query содержит признаки для поиска существующей сущности.\n"
             "Разрешенные поля query: title, summary, description, notes, due_date, start, end, "
             "priority, completed.\n"
-            "entity_type может быть только: task, event, unknown или null (только для intent=other).\n"
+            "entity_type может быть только: task, event, unknown или null (только для action=other).\n"
             "Используй только разрешенные поля. Не добавляй ключи, которых нет в списках ниже.\n"
             "Поля fields для task: title, notes, priority, category_id, duration, due_date, completed.\n"
             "Поля fields для event: summary, description, start, end.\n"
@@ -232,9 +233,9 @@ class IntentParserService:
             "верни JSON с ключом items — массив объектов, по одному на каждое действие, в порядке речи.\n"
             "Если действие одно, можно вернуть либо один объект как ниже, либо {\"items\": [ { ... один шаг ... } ]}.\n"
             f"{self._now_context_for_prompt()}"
-            "Формат одного шага (intent_item):\n"
+            "Формат одного шага (step_item):\n"
             "{\n"
-            '  "intent": "create|plan|update|reschedule|delete|get|other",\n'
+            '  "action": "create|schedule|update|delete|retrieve|other",\n'
             '  "entity_type": "task|event|unknown|null",\n'
             '  "query": {},\n'
             '  "fields": {},\n'
@@ -243,8 +244,8 @@ class IntentParserService:
             '  "filters": {}\n'
             "}\n"
             "Формат нескольких шагов:\n"
-            '{"items": [ intent_item, intent_item, ... ]}\n'
-            f"Доступные интенты:\n{intents_schema}"
+            '{"items": [ step_item, step_item, ... ]}\n'
+            f"Доступные значения action:\n{actions_schema}"
         )
 
         return [
@@ -252,12 +253,12 @@ class IntentParserService:
             {"role": "user", "content": user_text},
         ]
 
-    def _render_intents_schema(self) -> str:
+    def _render_actions_schema(self) -> str:
         lines = []
-        for intent in self.intents:
-            required = ", ".join(intent.required_fields) if intent.required_fields else "нет"
+        for definition in self._action_definitions:
+            required = ", ".join(definition.required_fields) if definition.required_fields else "нет"
             lines.append(
-                f"- {intent.code}: {intent.description}; обязательные_поля=[{required}]"
+                f"- {definition.code}: {definition.description}; обязательные_поля=[{required}]"
             )
         return "\n".join(lines)
 
@@ -298,19 +299,20 @@ class IntentParserService:
     def _looks_like_single_intent(payload: dict[str, Any]) -> bool:
         return any(
             k in payload
-            for k in ("intent", "entity_type", "query", "fields", "datetime", "meta", "filters")
+            for k in ("action", "entity_type", "query", "fields", "datetime", "meta", "filters")
         )
 
     def _normalize_item_payload(self, payload: dict[str, Any]) -> ParsedIntent:
-        allowed_intents = {item.code for item in self.intents}
-        intent = str(payload.get("intent", "other"))
-        if intent not in allowed_intents:
-            intent = "other"
+        allowed_codes = {item.code for item in self._action_definitions}
+        raw_step = payload.get("action")
+        action = normalize_action_code(str(raw_step if raw_step is not None else "other"))
+        if action not in allowed_codes:
+            action = "other"
 
         entity_type = payload.get("entity_type", "unknown")
         if entity_type not in {"task", "event", "unknown", None}:
             entity_type = "unknown"
-        if intent == "other":
+        if action == "other":
             entity_type = None
 
         query = payload.get("query")
@@ -347,7 +349,7 @@ class IntentParserService:
         )
 
         return ParsedIntent(
-            intent=intent,
+            action=action,
             entity_type=entity_type,
             query=query,
             fields=fields,
@@ -413,7 +415,7 @@ class IntentParserService:
         return ParsedIntentResult(
             items=[
                 ParsedIntent(
-                    intent="other",
+                    action="other",
                     entity_type=None,
                     query=None,
                     fields={},
@@ -424,3 +426,13 @@ class IntentParserService:
             ],
             raw_response=raw_response,
         )
+
+
+# Старые имена (импорт из внешнего кода / ноутбуков)
+IntentDefinition = ActionDefinition
+DEFAULT_INTENTS = DEFAULT_ACTIONS
+
+
+# Старые имена (импорт из внешнего кода / ноутбуков)
+IntentDefinition = ActionDefinition
+DEFAULT_INTENTS = DEFAULT_ACTIONS

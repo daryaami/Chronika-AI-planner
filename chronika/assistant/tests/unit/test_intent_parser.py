@@ -26,7 +26,7 @@ class IntentParserServiceTests(TestCase):
     def test_parse_returns_structured_payload_for_valid_json(self):
         fake = FakeLLMClient(
             response=(
-                '{"intent":"create","entity_type":"task","query":null,'
+                '{"action":"create","entity_type":"task","query":null,'
                 '"fields":{"title":"купить продукты"},'
                 '"datetime":{"date":"2026-03-28"},"meta":{},"filters":{}}'
             )
@@ -38,13 +38,40 @@ class IntentParserServiceTests(TestCase):
         self.assertIsInstance(result, ParsedIntentResult)
         self.assertEqual(len(result.items), 1)
         r0 = result.items[0]
-        self.assertEqual(r0.intent, "create")
+        self.assertEqual(r0.action, "create")
         self.assertEqual(r0.entity_type, "task")
         self.assertIsNone(r0.query)
         self.assertEqual(r0.fields.get("title"), "купить продукты")
         self.assertEqual(r0.datetime.get("date"), "2026-03-28")
         self.assertEqual(r0.meta, {})
         self.assertEqual(r0.filters, {})
+
+    def test_parse_unknown_action_code_becomes_other(self):
+        fake = FakeLLMClient(
+            response=(
+                '{"action":"find","entity_type":"task","query":null,'
+                '"fields":{},"datetime":{},"meta":{},"filters":{}}'
+            )
+        )
+        parser = IntentParserService(llm_client=fake)
+
+        result = parser.parse("Найди мои задачи")
+
+        self.assertEqual(result.items[0].action, "other")
+
+    def test_parse_json_without_action_key_yields_other(self):
+        fake = FakeLLMClient(
+            response=(
+                '{"intent":"schedule","entity_type":"task","query":{"title":"полить цветы"},'
+                '"fields":{},"datetime":{},"meta":{},"filters":{}}'
+            )
+        )
+        parser = IntentParserService(llm_client=fake)
+
+        result = parser.parse("Запланируй задачу полить цветы")
+
+        self.assertEqual(result.items[0].action, "other")
+        self.assertIsNone(result.items[0].entity_type)
 
     def test_parse_fallback_to_other_when_llm_call_fails(self):
         fake = FakeLLMClient(should_raise=True)
@@ -55,7 +82,7 @@ class IntentParserServiceTests(TestCase):
 
         self.assertEqual(len(result.items), 1)
         r0 = result.items[0]
-        self.assertEqual(r0.intent, "other")
+        self.assertEqual(r0.action, "other")
         self.assertIsNone(r0.entity_type)
         self.assertIsNone(r0.query)
         self.assertEqual(r0.fields, {})
@@ -69,7 +96,7 @@ class IntentParserServiceTests(TestCase):
 
         result = parser.parse("Удали что-нибудь")
 
-        self.assertEqual(result.items[0].intent, "other")
+        self.assertEqual(result.items[0].action, "other")
         self.assertIsNone(result.items[0].entity_type)
         self.assertEqual(result.raw_response, "не json")
 
@@ -77,7 +104,7 @@ class IntentParserServiceTests(TestCase):
         fake = FakeLLMClient(
             response=(
                 "Ответ:\n"
-                '{"intent":"delete","entity_type":"unknown","query":{"title":"купить продукты"},'
+                '{"action":"delete","entity_type":"unknown","query":{"title":"купить продукты"},'
                 '"fields":{},"datetime":{},"meta":{"scope":"single"},"filters":{}}'
                 "\nСпасибо"
             )
@@ -86,14 +113,14 @@ class IntentParserServiceTests(TestCase):
 
         result = parser.parse("Удали задачу купить продукты")
 
-        self.assertEqual(result.items[0].intent, "delete")
+        self.assertEqual(result.items[0].action, "delete")
         self.assertEqual(result.items[0].query, {"title": "купить продукты"})
         self.assertEqual(result.items[0].meta.get("scope"), "single")
 
-    def test_parse_normalizes_invalid_intent_and_entity_type(self):
+    def test_parse_normalizes_invalid_action_and_entity_type(self):
         fake = FakeLLMClient(
             response=(
-                '{"intent":"unsupported_intent","entity_type":"meeting","query":"встреча",'
+                '{"action":"unsupported_intent","entity_type":"meeting","query":"встреча",'
                 '"fields":"bad","datetime":"bad","meta":"bad","filters":"bad"}'
             )
         )
@@ -101,7 +128,7 @@ class IntentParserServiceTests(TestCase):
 
         result = parser.parse("Сделай что-то со встречей")
 
-        self.assertEqual(result.items[0].intent, "other")
+        self.assertEqual(result.items[0].action, "other")
         self.assertIsNone(result.items[0].entity_type)
         self.assertEqual(result.items[0].fields, {})
         self.assertEqual(result.items[0].datetime, {})
@@ -110,7 +137,7 @@ class IntentParserServiceTests(TestCase):
 
     def test_parser_asks_for_json_object_response_format(self):
         fake = FakeLLMClient(
-            response='{"intent":"other","entity_type":null,"query":null,"fields":{},"datetime":{},"meta":{},"filters":{}}'
+            response='{"action":"other","entity_type":null,"query":null,"fields":{},"datetime":{},"meta":{},"filters":{}}'
         )
         parser = IntentParserService(llm_client=fake)
 
@@ -122,9 +149,9 @@ class IntentParserServiceTests(TestCase):
         fake = FakeLLMClient(
             response=(
                 '{"items":['
-                '{"intent":"create","entity_type":"task","query":null,'
+                '{"action":"create","entity_type":"task","query":null,'
                 '"fields":{"title":"купить молоко"},"datetime":{},"meta":{},"filters":{}},'
-                '{"intent":"delete","entity_type":"event","query":{"summary":"встреча с клиентом"},'
+                '{"action":"delete","entity_type":"event","query":{"summary":"встреча с клиентом"},'
                 '"fields":{},"datetime":{},"meta":{},"filters":{}}'
                 "]}"
             )
@@ -134,15 +161,15 @@ class IntentParserServiceTests(TestCase):
         result = parser.parse("Создай задачу купить молоко и удали встречу с клиентом")
 
         self.assertEqual(len(result.items), 2)
-        self.assertEqual(result.items[0].intent, "create")
+        self.assertEqual(result.items[0].action, "create")
         self.assertEqual(result.items[0].fields.get("title"), "купить молоко")
-        self.assertEqual(result.items[1].intent, "delete")
+        self.assertEqual(result.items[1].action, "delete")
         self.assertEqual(result.items[1].query, {"summary": "встреча с клиентом"})
 
     def test_parse_normalizes_query_dict_and_drops_unknown_keys(self):
         fake = FakeLLMClient(
             response=(
-                '{"intent":"update","entity_type":"task",'
+                '{"action":"update","entity_type":"task",'
                 '"query":{"title":"купить молоко","priority":"HIGH","foo":"bar"},'
                 '"fields":{"priority":"LOW"},"datetime":{},"meta":{},"filters":{}}'
             )

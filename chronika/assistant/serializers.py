@@ -44,7 +44,7 @@ class SemanticSearchCandidateSerializer(serializers.Serializer):
 
 class AssistantIntentResultSerializer(serializers.Serializer):
     item_index = serializers.IntegerField()
-    intent = serializers.DictField(child=serializers.JSONField(), allow_empty=True)
+    step = serializers.DictField(child=serializers.JSONField(), allow_empty=True)
     candidates = SemanticSearchCandidateSerializer(many=True)
 
 
@@ -53,19 +53,23 @@ class AssistantOrchestratorResponseSerializer(serializers.Serializer):
     assistant_reply = serializers.CharField(allow_blank=True)
     user_id = serializers.IntegerField()
     intents = AssistantIntentResultSerializer(many=True)
+    state = serializers.CharField()
+    action_plan = serializers.JSONField(allow_null=True)
+    context = serializers.JSONField()
+    last_referenced_id = serializers.IntegerField(allow_null=True)
+    execution_artifact = serializers.JSONField(allow_null=True)
 
     @classmethod
     def from_result(cls, result: ChatOrchestratorResult) -> dict:
-        intent_items = (result.intent_parser or {}).get("items", [])
-        candidates_by_intent = result.candidates_by_intent or []
+        intent_items = result.intents or []
         intents_payload = []
         for index, intent_item in enumerate(intent_items):
-            intent_candidates = candidates_by_intent[index] if index < len(candidates_by_intent) else []
+            step = {k: v for k, v in intent_item.items() if k != "candidates"}
             intents_payload.append(
                 {
                     "item_index": index,
-                    "intent": intent_item,
-                    "candidates": intent_candidates,
+                    "step": step,
+                    "candidates": intent_item.get("candidates", []),
                 }
             )
 
@@ -74,5 +78,10 @@ class AssistantOrchestratorResponseSerializer(serializers.Serializer):
             "assistant_reply": result.assistant_reply,
             "user_id": result.user_id,
             "intents": intents_payload,
+            "state": result.state,
+            "action_plan": result.action_plan,
+            "context": result.context,
+            "last_referenced_id": result.last_referenced_id,
+            "execution_artifact": result.execution_artifact,
         }
         return cls(payload).data

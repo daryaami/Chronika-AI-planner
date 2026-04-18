@@ -1,42 +1,68 @@
 # Минимальная data-модель в assistant
-# AssistantSession(user, title, created_at, updated_at)
+# AssistantSession — одна активная сессия диалога на пользователя (состояние FSM в Postgres)
 # AssistantMessage(session, role, content, metadata_json, created_at)
-# IntentDefinition(code, schema_json, active)
-# IntentExecution(message, intent_code, slots_json, confidence, status)
-# PromptTemplate(name, version, system_prompt, config_json, active)
-# PromptRunTrace(message, template_version, prompt_hash, tokens_in, tokens_out, latency_ms)
-# RetrievalCache(user, query_hash, topk_json, expires_at) (опционально, если cache в БД нужен)
+# PromptTemplate / прочее — см. комментарии в истории файла
 
-
-from django.db import models
 from django.conf import settings
+from django.db import models
+
+from assistant.fsm.states import DialogState
 
 User = settings.AUTH_USER_MODEL
 
+
 class AssistantSession(models.Model):
     id = models.BigAutoField(primary_key=True)
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='assistant_sessions')
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name="assistant_dialog_session",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    dialog_state = models.CharField(
+        max_length=64,
+        default=DialogState.IDLE.value,
+        help_text="Состояние FSM (idle, waiting_confirmation, …).",
+    )
+    action_plan = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Текущий план действий (сериализация ActionPlan).",
+    )
+    dialog_context = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Структурированный контекст (disambiguation_options, last_interaction, …).",
+    )
+    last_referenced_id = models.BigIntegerField(
+        null=True,
+        blank=True,
+        help_text="Последний выбранный object_id (задача/событие).",
+    )
 
     class Meta:
-        ordering = ['-created_at']
+        ordering = ["-updated_at"]
 
     def __str__(self):
-        return f"Assistant Session {self.id} for {self.user.username}"
+        return f"AssistantSession {self.id} user={self.user_id} state={self.dialog_state}"
+
 
 class AssistantMessage(models.Model):
     id = models.BigAutoField(primary_key=True)
-    session = models.ForeignKey(AssistantSession, on_delete=models.CASCADE, related_name='messages')
+    session = models.ForeignKey(AssistantSession, on_delete=models.CASCADE, related_name="messages")
     role = models.CharField(max_length=255)
     content = models.TextField()
     metadata_json = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ['-created_at']
+        ordering = ["-created_at"]
 
     def __str__(self):
-        return f"Assistant Message {self.id} for {self.session.id}"
+        return f"AssistantMessage {self.id} session={self.session_id}"
+
 
 class PromptTemplate(models.Model):
     id = models.BigAutoField(primary_key=True)
@@ -48,7 +74,7 @@ class PromptTemplate(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ['-created_at']
+        ordering = ["-created_at"]
 
     def __str__(self):
-        return f"Prompt Template {self.name} {self.version}"
+        return f"{self.name} {self.version}"

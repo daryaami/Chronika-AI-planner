@@ -99,6 +99,11 @@ class EventNotFoundError(APIException):
     default_detail = "Событие не найдено."
     default_code = "event_not_found"
 
+class CalendarWriteAccessDeniedError(APIException):
+    status_code = status.HTTP_404_NOT_FOUND
+    default_detail = "Нет прав на запись в выбранный календарь."
+    default_code = "calendar_write_access_denied"
+
 class CalendarNotFoundError(APIException):
     status_code = status.HTTP_404_NOT_FOUND
     default_detail = "Календарь не найден."
