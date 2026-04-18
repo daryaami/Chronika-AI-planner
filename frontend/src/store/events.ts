@@ -65,7 +65,7 @@ export const useEventsStore = defineStore('events', () => {
 
     isSyncing.value = true
 
-    const syncToastId = toastStore.addToast('Syncing with Google Calendar 🔄', 0)
+    const syncToastId = toastStore.addToast('Синхронизируем события с Google Calendar 🔄', 0)
 
     try {
       const fetchFn = () =>
@@ -85,7 +85,7 @@ export const useEventsStore = defineStore('events', () => {
       toastStore.removeToast(syncToastId)
 
       if (!response.ok) {
-        toastStore.addToast('Failed to sync 😞', 4000)
+        toastStore.addToast('Ошибка синхронизации с Google Calendar 😞', 4000)
       } else {
         const data = await response.json()
 
@@ -101,7 +101,7 @@ export const useEventsStore = defineStore('events', () => {
       }
     } catch (error) {
       toastStore.removeToast(syncToastId)
-      toastStore.addToast('Failed to sync 😞', 4000)
+      toastStore.addToast('Ошибка синхронизации с Google Calendar 😞', 4000)
       console.error('Sync error:', error)
     } finally {
       isSyncing.value = false
@@ -125,7 +125,7 @@ export const useEventsStore = defineStore('events', () => {
     }
 
     // Синхронизируем с Google после загрузки новых месяцев
-    syncWithGoogle(startDate, endDate, monthsToFetch)
+    syncWithGoogle(startDate, endDate, monthsToFetch).then()
 
     return events.value
   }
@@ -142,6 +142,8 @@ export const useEventsStore = defineStore('events', () => {
       user_calendar_id: task.user_calendar_id
     }
 
+    const loadingToastId = toastStore.addToast('Создаём событие... ⏳', 0)
+
     const response = await fetch(`${BASE_API_URL}/events/from-task/`, {
       method: 'POST',
       credentials: 'include',
@@ -151,6 +153,8 @@ export const useEventsStore = defineStore('events', () => {
       },
       body: JSON.stringify(data)
     })
+
+    toastStore.removeToast(loadingToastId)
 
     if (response.ok) {
       const event = await response.json()
@@ -221,7 +225,7 @@ export const useEventsStore = defineStore('events', () => {
   }
 
   const deleteEvent = async (eventId: string, userCalendarId: number) => {
-    await fetch(`${BASE_API_URL}/events/`, {
+    const response = await fetch(`${BASE_API_URL}/events/`, {
       method: 'DELETE',
       credentials: 'include',
       headers: {
@@ -233,6 +237,10 @@ export const useEventsStore = defineStore('events', () => {
         user_calendar_id: userCalendarId
       })
     })
+
+    if (response.ok) {
+      events.value = events.value.filter(e => e.id !== eventId)
+    }
   }
 
   const createEventFromForm = async (data: {
@@ -242,7 +250,7 @@ export const useEventsStore = defineStore('events', () => {
     start: { dateTime: string }
     end: { dateTime: string }
   }) => {
-    const loadingToastId = toastStore.addToast('Creating event... ⏳', 0)
+    const loadingToastId = toastStore.addToast('Создаём событие... ⏳', 0)
 
     try {
       const fetchFn = () =>
