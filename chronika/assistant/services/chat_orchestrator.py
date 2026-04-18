@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 
 from assistant.domain.action_plan import action_plan_from_dict, action_plan_to_dict
 from assistant.domain.context import structured_context_from_dict, structured_context_to_dict
+from assistant.domain.dialog import ReplyInterpretation
 from assistant.fsm.machine import DialogSessionSnapshot, FsmMachine
 from assistant.fsm.states import DialogState
 from assistant.services.intent_parser import IntentParserService
@@ -56,6 +57,7 @@ class ChatOrchestratorService:
         context_dict: dict[str, Any] | None = None,
         last_referenced_id: int | None = None,
         max_followups: int = 3,
+        forced_interpretation: ReplyInterpretation | None = None,
     ) -> DialogTurnResult:
         """
         Точка входа stateful-диалога: FSM + Action Plan + структурированный контекст.
@@ -82,8 +84,14 @@ class ChatOrchestratorService:
         artifact: dict[str, Any] | None = None
         follow = (message or "").strip()
 
-        for _ in range(max(1, max_followups)):
-            turn = self.fsm.run_turn(user=user, user_message=follow, snapshot=snapshot)
+        for turn_idx in range(max(1, max_followups)):
+            fi = forced_interpretation if turn_idx == 0 else None
+            turn = self.fsm.run_turn(
+                user=user,
+                user_message=follow,
+                snapshot=snapshot,
+                forced_interpretation=fi,
+            )
             snapshot = turn.snapshot
             if turn.assistant_reply:
                 replies.append(turn.assistant_reply.strip())
@@ -127,6 +135,7 @@ class ChatOrchestratorService:
             plan_dict=plan_dict,
             context_dict=context_dict,
             last_referenced_id=last_referenced_id,
+            forced_interpretation=None,
         )
         intents = self._intents_from_action_plan(turn.plan)
         return ChatOrchestratorResult(

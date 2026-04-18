@@ -6,6 +6,7 @@ from assistant.fsm.states import DialogState
 from assistant.integrations.llm_client import LLMClientError
 from assistant.services.plan_merge import PlanMergeService
 from assistant.services.reply_interpreter import ReplyInterpreterInput, ReplyInterpreterService
+from core.exceptions import AssistantLLMParseError
 
 
 class FakeLLM:
@@ -111,7 +112,7 @@ class ReplyInterpreterHeuristicTests(TestCase):
         self.assertEqual(r.dialog_intent, DialogIntent.MODIFY)
         self.assertEqual(len(r.step_patches), 1)
 
-    def test_llm_failure_unclear(self):
+    def test_llm_failure_raises_after_retry(self):
         class BoomLLM:
             def chat_with_messages(self, **kwargs):
                 raise LLMClientError("x")
@@ -125,8 +126,8 @@ class ReplyInterpreterHeuristicTests(TestCase):
             last_referenced_id=None,
             user_message="про молоко",
         )
-        r = svc.interpret(payload)
-        self.assertEqual(r.dialog_intent, DialogIntent.UNCLEAR)
+        with self.assertRaises(AssistantLLMParseError):
+            svc.interpret(payload)
 
 
 class PlanMergeStepPatchesTests(TestCase):

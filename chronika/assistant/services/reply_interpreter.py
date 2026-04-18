@@ -4,12 +4,14 @@ import json
 import logging
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any
 
 from assistant.domain.dialog import DialogIntent, NewIntentCandidate, ReplyInterpretation
 from assistant.fsm.states import DialogState
 from assistant.integrations.llm_client import LLMClientError, LLMConfigurationError, MistralLLMClient
+from assistant.pipeline_log import interpretation_to_dict, log_exception, pretty_data, pretty_json_text, trace
+from core.exceptions import AssistantLLMParseError
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +49,10 @@ class ReplyInterpreterService:
         input_len = len(user_text)
         n_opts = len(payload.disambiguation_options or [])
         n_actions = len((payload.current_plan or {}).get("actions") or [])
+        trace(
+            "FSM → ReplyInterpreter: вход (все поля, как в ReplyInterpreterInput)",
+            вход_json=pretty_data(asdict(payload)),
+        )
         print(
             f"[ReplyInterpreter] start interpret: state={payload.state}, input_len={input_len}, "
             f"disambig_options={n_opts}, plan_actions={n_actions}, llm_available={self._llm is not None}"
@@ -72,18 +78,24 @@ class ReplyInterpreterService:
                 hit.dialog_intent.value,
                 hit.target_ids,
             )
+            trace(
+                "ReplyInterpreter: ответ (эвристика, JSON от LLM не вызывался)",
+                примечание="Ниже — нормализованный объект интерпретации (как после LLM).",
+                интерпретация_json=pretty_data(interpretation_to_dict(hit)),
+            )
             return hit
 
         if self._llm is not None:
-            try:
-                return self._llm_interpret(payload)
-            except LLMClientError as exc:
-                print(f"[ReplyInterpreter] LLM inference error: {exc}")
-                logger.warning("Reply interpreter failed to call LLM: %s", exc)
+            return self._llm_interpret(payload)
 
-        print("[ReplyInterpreter] fallback: intent=unclear (no llm or llm error)")
+        print("[ReplyInterpreter] fallback: intent=unclear (no llm)")
         logger.debug("ReplyInterpreter unclear fallback")
-        return self._unclear()
+        unclear = self._unclear()
+        trace(
+            "ReplyInterpreter: ответ (LLM недоступен)",
+            интерпретация_json=pretty_data(interpretation_to_dict(unclear)),
+        )
+        return unclear
 
     @staticmethod
     def _unclear() -> ReplyInterpretation:
@@ -232,8 +244,7 @@ class ReplyInterpreterService:
             return [int(sorted_opts[one_based - 1]["object_id"])]
         return []
 
-    def _llm_interpret(self, payload: ReplyInterpreterInput) -> ReplyInterpretation:
-        assert self._llm is not None
+    def _reply_interpreter_messages(self, payload: ReplyInterpreterInput) -> list[dict[str, str]]:
         plan_compact = json.dumps(payload.current_plan, ensure_ascii=False)
         options_compact = json.dumps(payload.disambiguation_options, ensure_ascii=False)
         system = (
@@ -261,32 +272,76 @@ class ReplyInterpreterService:
             f"Текущий план (JSON): {plan_compact}\n"
             f"Варианты для disambiguation (JSON): {options_compact}\n"
         )
+        return [
+            {"role": "system", "content": system},
+            {"role": "user", "content": payload.user_message},
+        ]
+
+    def _llm_chat_with_retry(self, messages: list[dict[str, str]], max_tokens: int) -> str:
+        assert self._llm is not None
+        for attempt in range(2):
+            try:
+                return self._llm.chat_with_messages(
+                    messages=messages,
+                    temperature=0.0,
+                    max_tokens=max_tokens,
+                    response_format={"type": "json_object"},
+                )
+            except LLMClientError as exc:
+                print(f"[ReplyInterpreter] LLM error (attempt {attempt + 1}): {exc}")
+                logger.warning("Reply interpreter LLM call failed (attempt %s): %s", attempt + 1, exc)
+                if attempt == 1:
+                    raise AssistantLLMParseError() from exc
+
+    def _llm_interpret(self, payload: ReplyInterpreterInput) -> ReplyInterpretation:
+        assert self._llm is not None
+        messages = self._reply_interpreter_messages(payload)
         max_tokens = 500
+        trace(
+            "ReplyInterpreter → LLM: полные сообщения (system + user)",
+            сообщения_json=pretty_data(messages),
+            max_tokens=str(max_tokens),
+        )
         print(
             f"[ReplyInterpreter] LLM inference start: max_tokens={max_tokens}, "
             f"messages=2 (system+user)"
         )
         started_at = time.perf_counter()
-        raw = self._llm.chat_with_messages(
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": payload.user_message},
-            ],
-            temperature=0.0,
-            max_tokens=max_tokens,
-            response_format={"type": "json_object"},
-        )
+        raw = self._llm_chat_with_retry(messages, max_tokens)
         elapsed_ms = int((time.perf_counter() - started_at) * 1000)
         print(
             f"[ReplyInterpreter] LLM inference done: elapsed_ms={elapsed_ms}, "
             f"response_len={len(raw)}"
         )
+        trace(
+            "ReplyInterpreter: сырой JSON от LLM",
+            ответ_llm_json=pretty_json_text(raw),
+            elapsed_ms=str(elapsed_ms),
+        )
 
         data = self._safe_parse_json(raw)
         if not data:
-            print("[ReplyInterpreter] response JSON parse failed; intent=unclear")
-            logger.warning("Reply interpreter: failed to parse LLM JSON response")
-            return self._unclear()
+            print("[ReplyInterpreter] response JSON parse failed; one retry inference")
+            logger.warning("Reply interpreter: failed to parse LLM JSON; retrying inference")
+            started_at = time.perf_counter()
+            raw = self._llm_chat_with_retry(messages, max_tokens)
+            elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+            print(
+                f"[ReplyInterpreter] LLM retry inference done: elapsed_ms={elapsed_ms}, "
+                f"response_len={len(raw)}"
+            )
+            data = self._safe_parse_json(raw)
+            if data:
+                trace(
+                    "ReplyInterpreter: сырой JSON от LLM (повторный запрос)",
+                    ответ_llm_json=pretty_json_text(raw),
+                )
+        if not data:
+            print("[ReplyInterpreter] JSON parse failed after retry; raising AssistantLLMParseError")
+            logger.warning("Reply interpreter: failed to parse LLM JSON after retry")
+            err = AssistantLLMParseError()
+            log_exception("reply_interpret.llm", "ReplyInterpreterService._llm_interpret", err)
+            raise err
 
         result = self._normalize_llm_payload(data, payload.state, payload.user_message)
         print(
@@ -298,6 +353,10 @@ class ReplyInterpreterService:
             "ReplyInterpreter LLM result: intent=%s target_ids=%s",
             result.dialog_intent.value,
             result.target_ids,
+        )
+        trace(
+            "ReplyInterpreter: нормализованный объект после разбора JSON",
+            интерпретация_json=pretty_data(interpretation_to_dict(result)),
         )
         return result
 

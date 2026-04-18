@@ -5,6 +5,7 @@ from django.test import TestCase
 from assistant.integrations.llm_client import LLMClientError
 from assistant.services import intent_parser as intent_parser_module
 from assistant.services.intent_parser import IntentParserService, ParsedIntentResult
+from core.exceptions import AssistantLLMParseError
 
 
 class FakeLLMClient:
@@ -73,32 +74,20 @@ class IntentParserServiceTests(TestCase):
         self.assertEqual(result.items[0].action, "other")
         self.assertIsNone(result.items[0].entity_type)
 
-    def test_parse_fallback_to_other_when_llm_call_fails(self):
+    def test_parse_raises_after_llm_call_fails_twice(self):
         fake = FakeLLMClient(should_raise=True)
         parser = IntentParserService(llm_client=fake)
 
         with mock.patch.object(intent_parser_module.logger, "warning"):
-            result = parser.parse("Что-то непонятное")
+            with self.assertRaises(AssistantLLMParseError):
+                parser.parse("Что-то непонятное")
 
-        self.assertEqual(len(result.items), 1)
-        r0 = result.items[0]
-        self.assertEqual(r0.action, "other")
-        self.assertIsNone(r0.entity_type)
-        self.assertIsNone(r0.query)
-        self.assertEqual(r0.fields, {})
-        self.assertEqual(r0.datetime, {})
-        self.assertEqual(r0.meta, {})
-        self.assertEqual(r0.filters, {})
-
-    def test_parse_fallback_to_other_when_json_is_invalid(self):
+    def test_parse_raises_when_json_invalid_after_retry_inference(self):
         fake = FakeLLMClient(response="не json")
         parser = IntentParserService(llm_client=fake)
 
-        result = parser.parse("Удали что-нибудь")
-
-        self.assertEqual(result.items[0].action, "other")
-        self.assertIsNone(result.items[0].entity_type)
-        self.assertEqual(result.raw_response, "не json")
+        with self.assertRaises(AssistantLLMParseError):
+            parser.parse("Удали что-нибудь")
 
     def test_parse_extracts_json_from_noisy_response(self):
         fake = FakeLLMClient(
@@ -182,3 +171,116 @@ class IntentParserServiceTests(TestCase):
             result.items[0].query,
             {"title": "купить молоко", "priority": "HIGH"},
         )
+
+    def test_no_duration_when_event_has_end(self):
+        fake = FakeLLMClient(
+            response=(
+                '{"action":"create","entity_type":"event","query":null,'
+                '"fields":{"summary":"X"},'
+                '"datetime":{"start_at":"2026-04-20T10:00:00","end_at":"2026-04-20T11:00:00"},'
+                '"meta":{},"filters":{}}'
+            )
+        )
+        parser = IntentParserService(llm_client=fake)
+        result = parser.parse("событие")
+        self.assertIsNone(result.items[0].fields.get("duration"))
+
+    def test_default_duration_when_create_task_omits_it(self):
+        fake = FakeLLMClient(
+            response=(
+                '{"action":"create","entity_type":"task","query":null,'
+                '"fields":{"title":"Полить цветы"},'
+                '"datetime":{},"meta":{},"filters":{}}'
+            )
+        )
+        parser = IntentParserService(llm_client=fake)
+        result = parser.parse("Создай задачу полить цветы")
+        self.assertEqual(result.items[0].fields.get("duration"), 30)
+
+    def test_default_duration_when_create_task_has_date_only(self):
+        fake = FakeLLMClient(
+            response=(
+                '{"action":"create","entity_type":"task","query":null,'
+                '"fields":{"title":"Полить цветы"},'
+                '"datetime":{"date":"2026-04-20"},"meta":{},"filters":{}}'
+            )
+        )
+        parser = IntentParserService(llm_client=fake)
+        result = parser.parse("На понедельник поставь задачу полить цветы")
+        self.assertEqual(result.items[0].fields.get("duration"), 30)
+
+    def test_default_duration_when_create_event_omits_it(self):
+        fake = FakeLLMClient(
+            response=(
+                '{"action":"create","entity_type":"event","query":null,'
+                '"fields":{"summary":"Созвон"},'
+                '"datetime":{"start_at":"2026-04-20T10:00:00"},'
+                '"meta":{},"filters":{}}'
+            )
+        )
+        parser = IntentParserService(llm_client=fake)
+        result = parser.parse("созвон в 10")
+        self.assertEqual(result.items[0].fields.get("duration"), 30)
+
+    def test_duration_in_datetime_moved_to_fields(self):
+        fake = FakeLLMClient(
+            response=(
+                '{"action":"create","entity_type":"event","query":null,'
+                '"fields":{"summary":"X"},'
+                '"datetime":{"start_at":"2026-04-20T10:00:00","duration":45},"meta":{},"filters":{}}'
+            )
+        )
+        parser = IntentParserService(llm_client=fake)
+        result = parser.parse("событие")
+        self.assertEqual(result.items[0].fields.get("duration"), 45)
+        self.assertNotIn("duration", result.items[0].datetime)
+
+    def test_time_constraints_window_drops_conflicting_start_at(self):
+        fake = FakeLLMClient(
+            response=(
+                '{"action":"create","entity_type":"event","query":null,'
+                '"fields":{"summary":"Встреча","duration":60},'
+                '"datetime":{"date":"2026-04-20","start_at":"2026-04-20T18:00:00Z","end_at":"2026-04-20T20:00:00Z",'
+                '"time_constraints":{"type":"window","start":"17:00","end":"22:00","preferences":{"flexible":true}}},'
+                '"meta":{},"filters":{}}'
+            )
+        )
+        parser = IntentParserService(llm_client=fake)
+        result = parser.parse("вечером встреча")
+        dt = result.items[0].datetime
+        self.assertNotIn("start_at", dt)
+        self.assertNotIn("end_at", dt)
+        self.assertEqual(dt.get("date"), "2026-04-20")
+        tc = dt.get("time_constraints")
+        self.assertIsInstance(tc, dict)
+        self.assertEqual(tc.get("type"), "window")
+
+    def test_time_constraints_deadline_drops_start_at_only(self):
+        fake = FakeLLMClient(
+            response=(
+                '{"action":"create","entity_type":"task","query":null,'
+                '"fields":{"title":"Отчёт","duration":60},'
+                '"datetime":{"date":"2026-04-25","start_at":"2026-04-25T09:00:00Z","end_at":"2026-04-25T18:00:00Z",'
+                '"time_constraints":{"type":"deadline","end":"2026-04-25T18:00:00","preferences":{"flexible":true}}},'
+                '"meta":{},"filters":{}}'
+            )
+        )
+        parser = IntentParserService(llm_client=fake)
+        result = parser.parse("отчёт к пятнице вечером")
+        dt = result.items[0].datetime
+        self.assertNotIn("start_at", dt)
+        self.assertEqual(dt.get("end_at"), "2026-04-25T18:00:00Z")
+        self.assertEqual(dt.get("time_constraints", {}).get("type"), "deadline")
+
+    def test_legacy_start_in_fields_moved_to_datetime(self):
+        fake = FakeLLMClient(
+            response=(
+                '{"action":"create","entity_type":"event","query":null,'
+                '"fields":{"summary":"X","start":"2026-04-20T10:00:00"},'
+                '"datetime":{},"meta":{},"filters":{}}'
+            )
+        )
+        parser = IntentParserService(llm_client=fake)
+        result = parser.parse("событие")
+        self.assertEqual(result.items[0].datetime.get("start_at"), "2026-04-20T10:00:00")
+        self.assertIsNone(result.items[0].fields.get("start"))

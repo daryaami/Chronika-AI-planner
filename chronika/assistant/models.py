@@ -3,6 +3,8 @@
 # AssistantMessage(session, role, content, metadata_json, created_at)
 # PromptTemplate / прочее — см. комментарии в истории файла
 
+import uuid
+
 from django.conf import settings
 from django.db import models
 
@@ -51,10 +53,13 @@ class AssistantSession(models.Model):
 
 class AssistantMessage(models.Model):
     id = models.BigAutoField(primary_key=True)
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
     session = models.ForeignKey(AssistantSession, on_delete=models.CASCADE, related_name="messages")
     role = models.CharField(max_length=255)
     content = models.TextField()
     metadata_json = models.JSONField(default=dict, blank=True)
+    blocks = models.JSONField(default=list, blank=True, help_text="UI-блоки ответа ассистента (протокол чата).")
+    fsm_state = models.CharField(max_length=64, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

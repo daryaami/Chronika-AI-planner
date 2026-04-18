@@ -4,8 +4,9 @@ from dataclasses import asdict, dataclass, replace
 
 from assistant.domain.action_plan import ActionPlan, action_plan_to_dict
 from assistant.domain.context import StructuredContext
-from assistant.domain.dialog import DialogIntent
+from assistant.domain.dialog import DialogIntent, ReplyInterpretation
 from assistant.fsm.states import DialogState
+from assistant.pipeline_log import interpretation_to_dict, pretty_data, pretty_json_text, trace
 from assistant.services.action_plan_adapter import parsed_intents_to_action_plan
 from assistant.services.intent_parser import IntentParserService
 from assistant.services.plan_executor import PlanExecutorService
@@ -55,15 +56,34 @@ class FsmMachine:
         user,
         user_message: str,
         snapshot: DialogSessionSnapshot,
+        forced_interpretation: ReplyInterpretation | None = None,
     ) -> FsmTurnResult:
         if snapshot.state == DialogState.IDLE:
-            return self._handle_idle(user=user, user_message=user_message, snapshot=snapshot)
-        return self._handle_dialog(user=user, user_message=user_message, snapshot=snapshot)
+            out = self._handle_idle(user=user, user_message=user_message, snapshot=snapshot)
+        else:
+            out = self._handle_dialog(
+                user=user,
+                user_message=user_message,
+                snapshot=snapshot,
+                forced_interpretation=forced_interpretation,
+            )
+        return out
 
     def _handle_idle(self, *, user, user_message: str, snapshot: DialogSessionSnapshot) -> FsmTurnResult:
         parsed = self.intent_parser.parse(user_message)
         plan = parsed_intents_to_action_plan(parsed.items)
+        plan_after_adapter = action_plan_to_dict(plan)
         search = self.search_stage.resolve_targets_in_plan(user=user, plan=plan)
+        plan_after_search = action_plan_to_dict(search.plan)
+        trace(
+            "FSM (IDLE): ответ IntentParser → нормализация → Action Plan",
+            сырой_json_от_llm=pretty_json_text(parsed.raw_response),
+            нормализованные_intents=pretty_data([asdict(x) for x in parsed.items]),
+            action_plan_после_адаптера=pretty_data(plan_after_adapter),
+            action_plan_после_search_stage=pretty_data(plan_after_search),
+            следующее_состояние_fsm=search.next_state.value,
+            подсказка_ассистента=pretty_data({"text": search.assistant_hint or ""}),
+        )
 
         ctx = snapshot.context
         if search.next_state == DialogState.DISAMBIGUATION:
@@ -83,22 +103,36 @@ class FsmMachine:
             assistant_reply=search.assistant_hint or "",
         )
 
-    def _handle_dialog(self, *, user, user_message: str, snapshot: DialogSessionSnapshot) -> FsmTurnResult:
+    def _handle_dialog(
+        self,
+        *,
+        user,
+        user_message: str,
+        snapshot: DialogSessionSnapshot,
+        forced_interpretation: ReplyInterpretation | None = None,
+    ) -> FsmTurnResult:
         if snapshot.plan is None:
             idle_snap = replace(snapshot, state=DialogState.IDLE, plan=None)
             return self._handle_idle(user=user, user_message=user_message, snapshot=idle_snap)
 
         plan = snapshot.plan
-        interpretation = self.reply_interpreter.interpret(
-            ReplyInterpreterInput(
-                state=snapshot.state.value,
-                current_plan=action_plan_to_dict(plan),
-                entities_in_context=[asdict(e) for e in plan.entities],
-                disambiguation_options=list(snapshot.context.disambiguation_options),
-                last_referenced_id=snapshot.last_referenced_id,
-                user_message=user_message,
+        if forced_interpretation is not None:
+            interpretation = forced_interpretation
+            trace(
+                "FSM (диалог): интерпретация с UI (без LLM Reply Interpreter)",
+                интерпретация=pretty_data(interpretation_to_dict(interpretation)),
             )
-        )
+        else:
+            interpretation = self.reply_interpreter.interpret(
+                ReplyInterpreterInput(
+                    state=snapshot.state.value,
+                    current_plan=action_plan_to_dict(plan),
+                    entities_in_context=[asdict(e) for e in plan.entities],
+                    disambiguation_options=list(snapshot.context.disambiguation_options),
+                    last_referenced_id=snapshot.last_referenced_id,
+                    user_message=user_message,
+                )
+            )
 
         if interpretation.dialog_intent == DialogIntent.CANCEL:
             return FsmTurnResult(
@@ -133,6 +167,10 @@ class FsmMachine:
             and interpretation.target_ids
         ):
             merged = self.plan_merge.apply_reply(plan, interpretation)
+            trace(
+                "FSM: Action Plan после merge (ветка SELECT / disambiguation)",
+                action_plan=pretty_data(action_plan_to_dict(merged)),
+            )
             ctx = replace(snapshot.context, disambiguation_options=[])
             new_snapshot = DialogSessionSnapshot(
                 state=DialogState.WAITING_CONFIRMATION,
@@ -147,7 +185,15 @@ class FsmMachine:
 
         if interpretation.dialog_intent == DialogIntent.CONFIRM:
             merged = self.plan_merge.apply_reply(plan, interpretation)
+            trace(
+                "FSM: Action Plan после merge (ветка CONFIRM, перед выполнением)",
+                action_plan=pretty_data(action_plan_to_dict(merged)),
+            )
             artifact = self.executor.execute(user_id=user.id, plan=merged)
+            trace(
+                "FSM: результат PlanExecutor.execute",
+                execution_artifact=pretty_data(artifact),
+            )
             ctx = self._sync_last_interaction(
                 replace(snapshot.context, disambiguation_options=[]),
                 merged,
@@ -174,6 +220,10 @@ class FsmMachine:
             interpretation.actions or interpretation.step_patches
         ):
             merged = self.plan_merge.apply_reply(plan, interpretation)
+            trace(
+                "FSM: Action Plan после merge (ветка MODIFY)",
+                action_plan=pretty_data(action_plan_to_dict(merged)),
+            )
             new_snapshot = DialogSessionSnapshot(
                 state=DialogState.WAITING_CONFIRMATION,
                 plan=merged,

@@ -160,6 +160,7 @@ DATABASES = {
 
 
 log_file_path = BASE_DIR / 'logs' / 'django.log'
+assistant_pipeline_log_path = BASE_DIR / 'logs' / 'assistant_pipeline.log'
 log_directory = os.path.dirname(log_file_path)
 if not os.path.exists(log_directory):
     os.makedirs(log_directory)
@@ -176,6 +177,10 @@ LOGGING = {
             'format': '{levelname} {message}',
             'style': '{',
         },
+        'assistant_pipeline': {
+            'format': '{asctime} | {levelname} | {message}',
+            'style': '{',
+        },
     },
     'handlers': {
         'console': {
@@ -188,6 +193,15 @@ LOGGING = {
             'class': 'logging.FileHandler',
             'filename': str(log_file_path),
             'formatter': 'verbose',
+        },
+        'assistant_pipeline_file': {
+            'level': 'INFO',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': str(assistant_pipeline_log_path),
+            'maxBytes': 10 * 1024 * 1024,
+            'backupCount': 5,
+            'formatter': 'assistant_pipeline',
+            'encoding': 'utf-8',
         },
     },
     'loggers': {
@@ -210,6 +224,11 @@ LOGGING = {
             'handlers': ['console', 'file'],
             'level': 'DEBUG',
             'propagate': True,
+        },
+        'assistant.pipeline': {
+            'handlers': ['assistant_pipeline_file'],
+            'level': 'INFO',
+            'propagate': False,
         },
     },
 }

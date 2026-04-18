@@ -122,3 +122,13 @@ class UserNotFoundError(APIException):
     status_code = status.HTTP_404_NOT_FOUND
     default_detail = "Пользователь не найден."
     default_code = "user_not_found"
+
+
+class AssistantLLMParseError(APIException):
+    """Сбой вызова LLM или разбора JSON при работе ассистента (после повторной попытки)."""
+
+    status_code = status.HTTP_502_BAD_GATEWAY
+    default_detail = (
+        "Не удалось обработать ответ языковой модели. Попробуйте отправить сообщение ещё раз."
+    )
+    default_code = "assistant_llm_parse_error"

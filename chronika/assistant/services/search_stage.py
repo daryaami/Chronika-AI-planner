@@ -101,12 +101,18 @@ class SearchStageService:
                 )
                 continue
 
+            entity_ctx = (
+                working.entities[idx].context_id
+                if idx < len(working.entities)
+                else f"e{idx}"
+            )
             options = tuple(
                 {
                     "index": i,
                     "entity_type": c.entity_type,
                     "object_id": c.object_id,
                     "similarity": c.similarity,
+                    "context_id": f"{entity_ctx}_c{i}",
                 }
                 for i, c in enumerate(candidates)
             )
