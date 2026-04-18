@@ -22,8 +22,8 @@ import MainAside from "../components/blocks/main-aside/MainAside.vue";
     display: flex;
     flex-direction: column;
     width: 100%;
-    flex-grow: 1;
-    overflow-x: visible;
+    height: 100%;
+    overflow: hidden;
   }
 }
 </style>

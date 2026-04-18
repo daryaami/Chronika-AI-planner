@@ -38,19 +38,20 @@ watch(
 )
 
 const onInput = (value: string) => {
-  const [hhStr, mmStr] = value.split(':')
+  // только обновляем rawValue, не трогаем modelValue
+}
+
+const onBlur = () => {
+  const [hhStr, mmStr] = rawValue.value.split(':')
   if (!hhStr || !mmStr) return
 
   const hh = Number(hhStr)
-  let mm = Number(mmStr.slice(0, 2)) // берём только первые 2 цифры
+  let mm = Number(mmStr.slice(0, 2))
 
   if (Number.isNaN(hh) || Number.isNaN(mm)) return
   if (mm > 59) mm = 59
 
   modelValue.value = hh * 60 + mm
-}
-
-const onBlur = () => {
   syncFromModel()
 }
 
@@ -81,7 +82,6 @@ const maskaOptions = {
         class="duration-input__input"
         v-model="rawValue"
         v-maska="maskaOptions"
-        @input="onInput(($event.target as HTMLInputElement).value)"
         @blur="onBlur"
       />
 
