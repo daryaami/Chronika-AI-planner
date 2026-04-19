@@ -1,5 +1,20 @@
+interface ChatMessageBlock {
+  type: 'text' | 'entity',
+  text?: string,
+  entity_type?: 'event',
+  fields?: {
+    duration?: number,
+    start_time?: string,
+    end_time?: string,
+    summary?: string
+  },
+  mode?: 'editable',
+}
+
 export interface ChatMessageType {
-  text: string;
+  message_id: string;
   role: 'user' | 'assistant';
-  type: 'text';
+  content: string;
+  created_at?: Date,
+  blocks?: ChatMessageBlock[]
 }

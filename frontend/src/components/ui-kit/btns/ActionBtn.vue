@@ -3,6 +3,7 @@ defineProps<{
   text: string
   variant?: 'primary' | 'secondary'
   type?: 'button' | 'submit' | 'reset'
+  size?: 's'
 }>()
 
 defineEmits<{
@@ -13,7 +14,7 @@ defineEmits<{
 <template>
   <button
     class="action-btn"
-    :class="`action-btn--${variant || 'primary'}`"
+    :class="`action-btn--${variant || 'primary'}${size? 'action-btn--' + size : ''}`"
     :type="type || 'button'"
     @click="$emit('click')"
   >
@@ -52,6 +53,11 @@ defineEmits<{
       opacity: .4;
       cursor: default;
     }
+  }
+
+  &--s {
+    font: var(--light-14);
+    padding: 4px 10px;
   }
 }
 </style>

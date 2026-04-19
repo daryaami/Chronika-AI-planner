@@ -6,6 +6,7 @@ import { useClickOutside } from "@/components/composables/useClickOutside";
 import ChatTextInput from "@/components/ui-kit/inputs/ChatTextInput.vue";
 import {useChatStore} from "@/store/chat";
 import AssistantChat from "@/components/blocks/assistant/AssistantChat.vue";
+import IconText from "@/components/ui-kit/links/IconText.vue";
 
 const isOpen = ref<boolean>(false);
 const bodyRef = ref<HTMLElement | null>(null);
@@ -19,6 +20,17 @@ const handleKeydown = (e: KeyboardEvent) => {
     isOpen.value = false;
   }
 };
+
+
+const open = () => {
+  if (isOpen.value) return;
+
+  isOpen.value = true;
+
+  if (!chatStore.messages.length) {
+    chatStore.fetchHistory().then()
+  }
+}
 
 onMounted(() => {
   window.addEventListener("keydown", handleKeydown);
@@ -42,11 +54,22 @@ const messageSubmitHandler = (message: string) => {
        :class="`${isOpen ? 'is-open' : ''}`" >
 
     <div class="assistant-window__body">
-      <IconBtn class="assistant-window__close"
-          icon="hide"
-          size="s"
-          @click="isOpen = false"
-      />
+      <div class="assistant-window__body-header">
+        <IconText leftIcon="cross"
+                  variant="tertiary"
+                  size="s"
+                  text="Очистить чат"
+                  v-if="chatStore.messages.length"
+                  @click="chatStore.clearHistory"
+        />
+
+        <IconBtn class="assistant-window__close"
+                 icon="hide"
+                 size="s"
+                 @click="isOpen = false"
+        />
+      </div>
+
       <div v-if="!chatStore.messages.length">
         <span class="assistant-window__title">Твой ассистент на связи!</span>
         <div class="assistant-window__examples">
@@ -88,7 +111,7 @@ const messageSubmitHandler = (message: string) => {
     </div>
     <AssistantIcon class="assistant-window__icon"
                    :class="isOpen && chatStore.messages.length ? 'hidden' : ''"
-                   @click="isOpen = true"
+                   @click="open"
     />
 
   </div>
@@ -146,16 +169,22 @@ const messageSubmitHandler = (message: string) => {
     }
   }
 
+  &__body-header {
+    display: flex;
+    align-items: center;
+
+    margin-bottom: 20px;
+    padding-left: 12px;
+  }
+
   &__close {
-    position: absolute;
-    top: 26px;
-    right: 20px;
+    margin-left: auto;
   }
 
   &__title {
     font: var(--bold-18);
 
-    margin-top: 138px;
+    margin-top: 100px;
     margin-bottom: 18px;
     display: block;
   }

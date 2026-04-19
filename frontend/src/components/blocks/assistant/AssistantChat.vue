@@ -13,7 +13,7 @@ const chatStore = useChatStore()
                  :message="m"
     />
 
-    <FetchingMessage />
+    <FetchingMessage v-if="chatStore.isFetching" />
   </div>
 </template>
 
@@ -21,8 +21,13 @@ const chatStore = useChatStore()
 .assistant-chat {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 20px;
+
+  flex-shrink: 1;
+  flex-basis: 100%;
+  overflow: auto;
 
   padding-top: 40px;
+  padding-bottom: 24px;
 }
 </style>
