@@ -159,9 +159,87 @@ class AssistantHistoryApi(APIView):
     @swagger_auto_schema(
         operation_description=(
             "Все сообщения сессии в хронологическом порядке (user/assistant) "
-            "и актуальное state сессии."
+            "и актуальное state сессии. "
+            "У каждого сообщения поле role указывает автора: user или assistant. "
+            "Системные инструкции не являются сообщениями истории и не возвращаются в messages[]."
         ),
-        responses={200: openapi.Response("session_id, state, messages[]")},
+        responses={
+            200: openapi.Response(
+                description="История сессии и текущее состояние",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    required=["session_id", "state", "messages"],
+                    properties={
+                        "session_id": openapi.Schema(
+                            type=openapi.TYPE_INTEGER,
+                            format=openapi.FORMAT_INT64,
+                            x_nullable=True,
+                            description="ID текущей сессии; null, если сессии еще нет.",
+                        ),
+                        "state": openapi.Schema(
+                            type=openapi.TYPE_STRING,
+                            description="Текущее состояние FSM диалога.",
+                        ),
+                        "messages": openapi.Schema(
+                            type=openapi.TYPE_ARRAY,
+                            description=(
+                                "Сообщения в хронологическом порядке. "
+                                "role показывает автора сообщения."
+                            ),
+                            items=openapi.Schema(
+                                type=openapi.TYPE_OBJECT,
+                                required=["message_id", "role", "content", "created_at", "blocks"],
+                                properties={
+                                    "message_id": openapi.Schema(
+                                        type=openapi.TYPE_STRING,
+                                        description="Публичный UUID сообщения.",
+                                    ),
+                                    "role": openapi.Schema(
+                                        type=openapi.TYPE_STRING,
+                                        enum=["user", "assistant"],
+                                        description=(
+                                            "Автор сообщения: "
+                                            "user — сообщение пользователя, "
+                                            "assistant — ответ ассистента."
+                                        ),
+                                    ),
+                                    "content": openapi.Schema(
+                                        type=openapi.TYPE_STRING,
+                                        description="Текст сообщения.",
+                                    ),
+                                    "created_at": openapi.Schema(
+                                        type=openapi.TYPE_STRING,
+                                        format=openapi.FORMAT_DATETIME,
+                                        x_nullable=True,
+                                        description="Время создания сообщения (ISO-8601).",
+                                    ),
+                                    "blocks": openapi.Schema(
+                                        type=openapi.TYPE_ARRAY,
+                                        description=(
+                                            "UI-блоки ответа ассистента. "
+                                            "Для role=user всегда пустой массив."
+                                        ),
+                                        items=openapi.Schema(type=openapi.TYPE_OBJECT),
+                                    ),
+                                    "state": openapi.Schema(
+                                        type=openapi.TYPE_STRING,
+                                        x_nullable=True,
+                                        description=(
+                                            "FSM-состояние на момент сообщения ассистента; "
+                                            "может отсутствовать для role=user."
+                                        ),
+                                    ),
+                                    "metadata": openapi.Schema(
+                                        type=openapi.TYPE_OBJECT,
+                                        description="Дополнительные метаданные сообщения.",
+                                    ),
+                                },
+                            ),
+                        ),
+                    },
+                ),
+            )
+        },
     )
     def get(self, request, *args, **kwargs):
         user = request.user
