@@ -17,12 +17,14 @@ class AssistantSession(models.Model):
     id = models.BigAutoField(primary_key=True)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='assistant_sessions')
     created_at = models.DateTimeField(auto_now_add=True)
+    execution_state = models.JSONField(default=dict, blank=True)
 
     class Meta:
         ordering = ['-created_at']
 
     def __str__(self):
-        return f"Assistant Session {self.id} for {self.user.username}"
+        label = getattr(self.user, "email", None) or str(self.user_id)
+        return f"Assistant Session {self.id} for {label}"
 
 class AssistantMessage(models.Model):
     id = models.BigAutoField(primary_key=True)

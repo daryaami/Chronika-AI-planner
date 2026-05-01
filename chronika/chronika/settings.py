@@ -64,6 +64,7 @@ INSTALLED_APPS = [
     'users',
     'events',
     'tasks',
+    'assistant',
 ]
 
 CORS_ALLOW_CREDENTIALS = True
