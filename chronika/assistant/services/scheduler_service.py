@@ -30,10 +30,13 @@ from assistant.services.calendar_availability import (
 
 SLOT_STEP_MINUTES = 15
 MIN_DURATION_MINUTES = 15
+MAX_AUTO_TRIM_RATIO = 0.15
 MAX_SLOT_OPTIONS = 5
 DEFAULT_HORIZON_DAYS = 14
 _MAX_CANDIDATES_SCAN = 400
 _LOG_CANDIDATES_CAP = 120
+DEFAULT_AUTO_WINDOW_START = time(9, 0)
+DEFAULT_AUTO_WINDOW_END = time(23, 30)
 
 # Ключи из fields, которые должны участвовать в планировании, если в datetime их нет
 # (как в build_ui_blocks: часть полей живёт только в fields).
@@ -69,6 +72,40 @@ def _scheduling_relevant(sched: dict[str, Any]) -> bool:
         return True
     tc = sched.get("time_constraints")
     return isinstance(tc, dict) and bool(tc)
+
+
+def _has_date_or_time_constraints(sched: dict[str, Any]) -> bool:
+    """Достаточность данных для планирования: явная дата/слот или time_constraints."""
+    return _scheduling_relevant(sched)
+
+
+def _should_schedule_action(*, code: str, entity_type: str, sched: dict[str, Any]) -> bool:
+    """
+    Единая матрица запуска Scheduler:
+    - plan/reschedule: только если есть дата/ограничения времени
+    - create event: всегда
+    - update event: если обновляется дата/время (есть datetime-ограничения)
+    - create task: только при наличии временных ограничений
+    """
+    if code in {"plan", "reschedule"}:
+        return _has_date_or_time_constraints(sched)
+    if code == "create" and entity_type == "event":
+        # All-day создание по дате не требует подбора точного слота.
+        is_all_day = bool(sched.get("is_all_day"))
+        has_exact_slot = sched.get("start_at") not in (None, "") or sched.get("end_at") not in (None, "")
+        has_time_constraints = isinstance(sched.get("time_constraints"), dict) and bool(sched.get("time_constraints"))
+        if is_all_day and not has_exact_slot and not has_time_constraints:
+            return False
+        return True
+    if code == "update" and entity_type == "event":
+        return _has_date_or_time_constraints(sched)
+    if code == "create" and entity_type == "task":
+        tc = sched.get("time_constraints")
+        tc_type = str(tc.get("type") or "").strip().lower() if isinstance(tc, dict) else ""
+        has_exact_slot = sched.get("start_at") not in (None, "") or sched.get("end_at") not in (None, "")
+        # Для новых задач без явного планирования (deadline/date) работаем через due_date, без scheduler.
+        return has_exact_slot or tc_type in {"exact", "window", "interval", "range"}
+    return False
 
 
 def _user_tz(user: Any) -> tzinfo:
@@ -138,6 +175,40 @@ def _parse_date_only(val: Any) -> date | None:
     if isinstance(val, date):
         return val
     return parse_date(str(val).strip())
+
+
+def _realign_schedule_start_to_requested_date(
+    *,
+    code: str,
+    action: Action,
+    sched: dict[str, Any],
+    user_tz: tzinfo,
+    duration_minutes: int,
+) -> tuple[datetime_cls | None, datetime_cls | None]:
+    """
+    Для reschedule существующего события:
+    если пользователь дал новую date, а в шаге остались start_at/end_at исходного события,
+    переносим wall-clock время на запрошенную дату.
+    """
+    if code != "reschedule" or action.target_id is None:
+        return None, None
+    req_date = _parse_date_only(sched.get("date"))
+    raw_start = sched.get("start_at")
+    if req_date is None or raw_start in (None, ""):
+        return None, None
+
+    old_start = _parse_iso_dt(raw_start, user_tz)
+    if old_start is None:
+        return None, None
+    start_on_req_date = _combine(req_date, old_start.astimezone(user_tz).time(), user_tz)
+
+    old_end = _parse_iso_dt(sched.get("end_at"), user_tz)
+    if old_end is not None and old_end > old_start:
+        mins = max(MIN_DURATION_MINUTES, int((old_end - old_start).total_seconds() // 60))
+    else:
+        mins = max(MIN_DURATION_MINUTES, int(duration_minutes))
+    end_on_req_date = start_on_req_date + timedelta(minutes=mins)
+    return start_on_req_date, end_on_req_date
 
 
 def _parse_hhmm(val: Any, user_tz: tzinfo) -> time | None:
@@ -240,7 +311,7 @@ def _duration_for_scheduling(
         if explicit >= MIN_DURATION_MINUTES:
             return explicit
 
-    if code == "update" and et_s == "event" and action.target_id is not None:
+    if code in {"update", "plan", "reschedule"} and et_s == "event" and action.target_id is not None:
         db_mins = _event_duration_minutes_for_user(user, int(action.target_id))
         if db_mins is not None:
             new_fields = dict(data.get("fields") or {})
@@ -304,9 +375,12 @@ def _dates_for_search(dt: dict[str, Any]) -> list[date]:
 
 
 def _constraint_times(tc: dict[str, Any], user_tz: tzinfo) -> tuple[time, time]:
+    # Без явных временных ограничений не ставим автослоты ночью.
+    if not isinstance(tc, dict) or not tc:
+        return DEFAULT_AUTO_WINDOW_START, DEFAULT_AUTO_WINDOW_END
     st = _parse_hhmm(tc.get("start"), user_tz) if isinstance(tc, dict) else None
     en = _parse_hhmm(tc.get("end"), user_tz) if isinstance(tc, dict) else None
-    return st or time(0, 0), en or time(23, 59, 59)
+    return st or DEFAULT_AUTO_WINDOW_START, en or DEFAULT_AUTO_WINDOW_END
 
 
 def _interval_free_of_busy(
@@ -324,6 +398,16 @@ def _slot_respects_due_end(seg_end: datetime_cls, due_cap: datetime_cls | None) 
     return due_cap is None or seg_end <= due_cap
 
 
+def _conflict_hint_for_schedule(*, code: str, sched: dict[str, Any]) -> str:
+    """
+    Более точная формулировка для переноса:
+    при переносе на дату без явного нового часа конфликт относится к исходному времени события.
+    """
+    if code == "reschedule" and sched.get("date") not in (None, ""):
+        return "На выбранную дату исходное время занято или не подходит — поставила ближайший свободный слот."
+    return "Указанное время занято или не подходит — поставила ближайший свободный слот."
+
+
 @dataclass
 class _ScheduleOutcome:
     action: Action
@@ -338,8 +422,7 @@ class SchedulerService:
     3) Точное время не удалось сохранить (календарь / due) — до MAX_SLOT_OPTIONS вариантов
        в time_slot_selection для ручного выбора.
 
-    Для action=update то же самое, если в datetime/fields есть окно/даты/time_constraints
-    (перенос времени существующей задачи/события после intent parser).
+    Запускается по явной матрице кейсов (см. _should_schedule_action), без fail-open условий.
     """
 
     def apply_to_plan(self, user, plan: ActionPlan) -> tuple[ActionPlan, str | None]:
@@ -365,9 +448,8 @@ class SchedulerService:
         dt = dict(data.get("datetime") or {})
         sched = _schedule_view(fields, dt)
 
-        if code not in ("create", "schedule"):
-            if code != "update" or not _scheduling_relevant(sched):
-                return _ScheduleOutcome(action)
+        if not _should_schedule_action(code=code, entity_type=et_s, sched=sched):
+            return _ScheduleOutcome(action)
 
         duration = _duration_for_scheduling(
             action=action,
@@ -387,7 +469,8 @@ class SchedulerService:
             else None
         )
         user_tz = _user_tz(user)
-        due_cap = _due_datetime_cap(fields, sched, user_tz)
+        # Для action=plan/reschedule due_date не должен ограничивать подбор слота.
+        due_cap = None if code in {"plan", "reschedule"} else _due_datetime_cap(fields, sched, user_tz)
 
         now = timezone.now()
         horizon_end = now + timedelta(days=DEFAULT_HORIZON_DAYS)
@@ -401,6 +484,16 @@ class SchedulerService:
 
         start_at = _parse_iso_dt(sched.get("start_at"), user_tz)
         end_at = _parse_iso_dt(sched.get("end_at"), user_tz)
+        realigned_start, realigned_end = _realign_schedule_start_to_requested_date(
+            code=code,
+            action=action,
+            sched=sched,
+            user_tz=user_tz,
+            duration_minutes=duration,
+        )
+        if realigned_start is not None:
+            start_at = realigned_start
+            end_at = realigned_end
 
         if start_at is not None:
             if due_cap is not None and start_at > due_cap:
@@ -409,6 +502,15 @@ class SchedulerService:
                     log_suffix=" (start после due_date)",
                 )
                 if options:
+                    if len(options) == 1:
+                        return self._apply_chosen_slot(
+                            action,
+                            data,
+                            dt,
+                            fields,
+                            options[0],
+                            hint="Старт позже допустимого срока — поставила ближайший подходящий слот.",
+                        )
                     return self._with_options(
                         action,
                         data,
@@ -435,7 +537,11 @@ class SchedulerService:
             blocked_by_busy = not _interval_free_of_busy(start_at, orig_end, merged)
             blocked_by_due = not _slot_respects_due_end(orig_end, due_cap)
             req_mins = max(int((end_at - start_at).total_seconds() // 60), MIN_DURATION_MINUTES)
-            for mins in range(req_mins, MIN_DURATION_MINUTES - 1, -SLOT_STEP_MINUTES):
+            min_allowed_after_trim = max(
+                MIN_DURATION_MINUTES,
+                int(req_mins * (1.0 - MAX_AUTO_TRIM_RATIO)),
+            )
+            for mins in range(req_mins, min_allowed_after_trim - 1, -SLOT_STEP_MINUTES):
                 ne = start_at + timedelta(minutes=mins)
                 if _interval_free_of_busy(start_at, ne, merged) and _slot_respects_due_end(
                     ne, due_cap
@@ -468,6 +574,15 @@ class SchedulerService:
                 log_suffix=" (точное время занято / не влезает)",
             )
             if options:
+                if len(options) == 1:
+                    return self._apply_chosen_slot(
+                        action,
+                        data,
+                        dt,
+                        fields,
+                        options[0],
+                        hint=_conflict_hint_for_schedule(code=code, sched=sched),
+                    )
                 return self._with_options(
                     action,
                     data,

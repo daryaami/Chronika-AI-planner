@@ -120,7 +120,7 @@ def run_assistant_turn_with_persisted_state(
             role="user",
             content=str(message),
             metadata_json={},
-            blocks=[],
+            blocks=[{"type": "text", "text": str(message)}],
             fsm_state="",
         )
 
@@ -243,7 +243,11 @@ def _message_to_history_item(msg: AssistantMessage) -> dict[str, Any]:
         if isinstance(msg.metadata_json, dict) and msg.metadata_json:
             item["metadata"] = msg.metadata_json
     else:
-        item["blocks"] = []
+        if isinstance(msg.blocks, list) and msg.blocks:
+            item["blocks"] = msg.blocks
+        else:
+            # Backward compatibility for old user messages saved with empty blocks.
+            item["blocks"] = [{"type": "text", "text": msg.content or ""}]
         if isinstance(msg.metadata_json, dict) and msg.metadata_json:
             item["metadata"] = msg.metadata_json
     return item

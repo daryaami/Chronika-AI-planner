@@ -63,7 +63,7 @@ class IntentParserServiceTests(TestCase):
     def test_parse_json_without_action_key_yields_other(self):
         fake = FakeLLMClient(
             response=(
-                '{"intent":"schedule","entity_type":"task","query":{"title":"полить цветы"},'
+                '{"intent":"plan","entity_type":"task","query":{"title":"полить цветы"},'
                 '"fields":{},"datetime":{},"meta":{},"filters":{}}'
             )
         )

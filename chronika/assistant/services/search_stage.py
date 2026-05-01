@@ -51,6 +51,25 @@ class SearchStageService:
             row["due_date"] = due.isoformat() if due else None
         return row
 
+    @staticmethod
+    def _candidate_display_label(c: SemanticSearchCandidate) -> str:
+        """Человекочитаемая подпись варианта для assistant_hint в disambiguation."""
+        payload = c.payload
+        if c.entity_type == "event":
+            title = (getattr(payload, "summary", None) or "").strip() or f"event #{c.object_id}"
+            st = getattr(payload, "start", None)
+            en = getattr(payload, "end", None)
+            if st and en:
+                return f"{title} ({st.isoformat()} — {en.isoformat()})"
+            if st:
+                return f"{title} (с {st.isoformat()})"
+            return title
+        title = (getattr(payload, "title", None) or "").strip() or f"task #{c.object_id}"
+        due = getattr(payload, "due_date", None)
+        if due:
+            return f"{title} (due {due.isoformat()})"
+        return title
+
     def resolve_targets_in_plan(self, *, user, plan: ActionPlan) -> SearchStageResult:
         if not plan.actions:
             return SearchStageResult(
@@ -99,7 +118,7 @@ class SearchStageService:
                 entity_type=entity_type,
             )
             threshold = (
-                0.8 if action_code == "schedule" and entity_type != "event" else 0.7
+                0.8 if action_code in {"plan", "reschedule"} and entity_type != "event" else 0.7
             )
             candidates = self.semantic_search.find_candidates(
                 user=user,
@@ -117,13 +136,20 @@ class SearchStageService:
                     assistant_hint="Не нашла подходящий объект. Уточните название или детали.",
                 )
             if len(candidates) == 1:
-                cid = candidates[0].object_id
+                one = candidates[0]
+                cid = one.object_id
+                enriched_data = self._enrich_action_data_from_candidate(
+                    action.data,
+                    one,
+                    action_code=action_code,
+                )
                 working.actions[idx] = Action(
                     context_id=action.context_id,
                     type=action.type,
                     target_id=cid,
-                    data=dict(action.data),
+                    data=enriched_data,
                 )
+                self._enrich_entity_preview(working.entities, idx, one)
                 continue
 
             entity_ctx = (
@@ -136,7 +162,7 @@ class SearchStageService:
             for i, c in enumerate(candidates):
                 opt = SearchStageService._disambiguation_option(entity_ctx, i, c)
                 options_list.append(opt)
-                titles.append(str(opt.get("title") or f"{c.entity_type} #{c.object_id}"))
+                titles.append(self._candidate_display_label(c))
             options = tuple(options_list)
 
             hint = "Несколько совпадений: " + "; ".join(
@@ -165,11 +191,85 @@ class SearchStageService:
         )
 
     @staticmethod
+    def _enrich_action_data_from_candidate(
+        action_data: dict[str, Any],
+        c: SemanticSearchCandidate,
+        *,
+        action_code: str,
+    ) -> dict[str, Any]:
+        """
+        Добавляет в шаг человекочитаемые поля найденного объекта для UI/подтверждения.
+        Не перетирает уже заданные пользователем поля.
+        """
+        data = dict(action_data) if isinstance(action_data, dict) else {}
+        fields = dict(data.get("fields") or {})
+        dt = dict(data.get("datetime") or {})
+        payload = c.payload
+
+        if c.entity_type == "event":
+            summary = (getattr(payload, "summary", None) or "").strip()
+            if summary and fields.get("summary") in (None, ""):
+                fields["summary"] = summary
+            start = getattr(payload, "start", None)
+            end = getattr(payload, "end", None)
+            # Для delete не подмешиваем слоты в шаг (иначе UI выглядит как «редактирование времени»).
+            if action_code in {"plan", "reschedule", "update", "retrieve"}:
+                if dt.get("start_at") in (None, "") and start is not None:
+                    dt["start_at"] = start.isoformat()
+                if dt.get("end_at") in (None, "") and end is not None:
+                    dt["end_at"] = end.isoformat()
+        elif c.entity_type == "task":
+            title = (getattr(payload, "title", None) or "").strip()
+            if title and fields.get("title") in (None, ""):
+                fields["title"] = title
+            priority = getattr(payload, "priority", None)
+            if priority is not None and fields.get("priority") in (None, ""):
+                fields["priority"] = priority
+            category_id = getattr(payload, "category_id", None)
+            if category_id is not None and fields.get("category_id") in (None, ""):
+                fields["category_id"] = category_id
+            due = getattr(payload, "due_date", None)
+            if dt.get("date") in (None, "") and due is not None:
+                dt["date"] = due.isoformat()
+
+        data["fields"] = fields
+        data["datetime"] = dt
+        return data
+
+    @staticmethod
+    def _enrich_entity_preview(entities: list[Any], idx: int, c: SemanticSearchCandidate) -> None:
+        """Обновляет title/meta сущности в Action Plan для корректного отображения в UI."""
+        if idx >= len(entities) or not isinstance(entities[idx], dict):
+            return
+        ent = dict(entities[idx])
+        payload = c.payload
+        if c.entity_type == "event":
+            summary = (getattr(payload, "summary", None) or "").strip()
+            if summary:
+                ent["title"] = summary
+            st = getattr(payload, "start", None)
+            en = getattr(payload, "end", None)
+            meta = dict(ent.get("meta") or {})
+            dt_meta = dict(meta.get("datetime") or {})
+            if st is not None:
+                dt_meta["start_at"] = st.isoformat()
+            if en is not None:
+                dt_meta["end_at"] = en.isoformat()
+            if dt_meta:
+                meta["datetime"] = dt_meta
+                ent["meta"] = meta
+        elif c.entity_type == "task":
+            title = (getattr(payload, "title", None) or "").strip()
+            if title:
+                ent["title"] = title
+        entities[idx] = ent
+
+    @staticmethod
     def _needs_resolution(action: Action) -> bool:
         if action.target_id is not None:
             return False
         code = _step_action_code(action)
-        return code in {"schedule", "update", "delete", "retrieve"}
+        return code in {"plan", "reschedule", "update", "delete", "retrieve"}
 
 
 def _step_action_code(action: Action) -> str:
@@ -177,10 +277,12 @@ def _step_action_code(action: Action) -> str:
 
 
 def _resolve_search_scope(*, action_code: str, entity_type: Any) -> str:
-    if action_code == "schedule":
+    if action_code in {"reschedule", "plan"}:
         if entity_type == "event":
             return "events"
-        return "tasks"
+        if entity_type == "task":
+            return "tasks"
+        return "all"
     if entity_type == "task":
         return "tasks"
     if entity_type == "event":

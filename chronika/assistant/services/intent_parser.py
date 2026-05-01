@@ -57,8 +57,13 @@ DEFAULT_ACTIONS: list[ActionDefinition] = [
         required_fields=["fields.title или query"],
     ),
     ActionDefinition(
-        code="schedule",
-        description="Назначить время существующей задаче/событию или перенести время.",
+        code="plan",
+        description="Запланировать слот для задачи/события (нового или найденного по query).",
+        required_fields=[],
+    ),
+    ActionDefinition(
+        code="reschedule",
+        description="Перенести время существующей задачи/события.",
         required_fields=["query (если объект уже существует)"],
     ),
     ActionDefinition(
@@ -87,7 +92,7 @@ DEFAULT_ACTIONS: list[ActionDefinition] = [
 class IntentParserService:
     """
     Парсер первого уровня: шаги с полем action, совпадающим с Action.type в Action Plan
-    (create | schedule | update | delete | retrieve | other).
+    (create | plan | reschedule | update | delete | retrieve | other).
     """
 
     def __init__(
@@ -206,7 +211,7 @@ class IntentParserService:
         wd = weekdays_ru[now.weekday()]
         d = now.date().isoformat()
         return (
-            f"Ориентир времени для пользователя: сегодня {d} ({wd}), часовой пояс {settings.TIME_ZONE}. "
+            f"Ориентир времени для пользователя: сегодня {d} ({wd}). "
             "Переводи «сегодня», «завтра», «послезавтра», названия дней недели в конкретную календарную дату: "
             "поле datetime.date (или date_from/date_to для диапазона дней). "
             "Не подставляй вымышленные часы минуты, если пользователь их не назвал явно (например «в 15:30», «с 18 до 20»).\n"
@@ -223,12 +228,12 @@ class IntentParserService:
             "Каждый шаг — объект с ключами: action, entity_type, query, fields, datetime, meta, filters. "
             "Обязателен только action; остальное при отсутствии данных — null или пустой объект {}.\n\n"
             "action (строго нижний регистр) — тип шага, совпадает с Action.type в плане: "
-            "create | schedule | update | delete | retrieve | other.\n"
+            "create | plan | reschedule | update | delete | retrieve | other.\n"
             "entity_type: task | event | unknown | null. Для action=other укажи entity_type: null.\n\n"
             "create: новая сущность — как правило query: null, всё содержимое в fields и datetime.\n"
-            "schedule | update | delete | retrieve: если речь о существующем объекте — заполни query так, "
+            "reschedule | update | delete | retrieve: если речь о существующем объекте — заполни query так, "
             "чтобы по нему можно было найти задачу или событие.\n\n"
-            "query — признаки для поиска уже существующей задачи или события (актуально для schedule, update, delete, "
+            "query — признаки для поиска уже существующей задачи или события (актуально для reschedule, update, delete, "
             "retrieve). Если пользователь ссылается на существующий объект — заполни query конкретно.\n"
             "Разрешённые ключи query: title, summary, description, notes, due_date, start, end, priority, completed.\n\n"
             "fields — данные для создания или правки сущности.\n"
@@ -242,7 +247,7 @@ class IntentParserService:
             "datetime.date_from и datetime.date_to (оба YYYY-MM-DD). Это основной способ спарсить именно **диапазон дат**; "
             "time_constraints тогда не обязателен, если отдельно не нужно окно времени суток.\n"
             "- Точный слот (только если пользователь назвал конкретное время или интервал часов): "
-            "start_at, end_at — ISO 8601 с часовым поясом или Z.\n"
+            "start_at, end_at — ISO 8601 в локальном часовом поясе пользователя (не используй суффикс Z).\n"
             "- Если время неточное («утром», «днём», «вечером», «на понедельник вечером», «на выходных», "
             "«до конца недели» и т.п.) — НЕ выбирай конкретный слот. "
             "Вместо start_at/end_at и вместо выдуманных часов в fields используй объект datetime.time_constraints:\n"
@@ -375,6 +380,7 @@ class IntentParserService:
         if not isinstance(datetime_payload, dict):
             datetime_payload = {}
         datetime_payload = self._sanitize_datetime_payload(datetime_payload)
+        action = self._normalize_update_to_schedule_by_datetime(action=action, datetime_payload=datetime_payload)
 
         if entity_type == "event":
             self._migrate_event_start_end_fields_to_datetime(raw_fields, datetime_payload)
@@ -382,6 +388,12 @@ class IntentParserService:
         fields = self._normalize_fields_by_entity_type(raw_fields, entity_type)
 
         self._resolve_vague_time_vs_exact_slot(datetime_payload)
+        self._normalize_task_deadline_without_scheduling(
+            action=action,
+            entity_type=entity_type,
+            fields=fields,
+            datetime_payload=datetime_payload,
+        )
         if "duration" in datetime_payload:
             dv = datetime_payload.pop("duration")
             if fields.get("duration") in (None, ""):
@@ -416,6 +428,23 @@ class IntentParserService:
             meta=meta,
             filters=filters,
         )
+
+    @staticmethod
+    def _normalize_update_to_schedule_by_datetime(*, action: str, datetime_payload: dict[str, Any]) -> str:
+        """
+        Если шаг помечен как update, но содержит перенос по времени/дате,
+        трактуем это как reschedule, чтобы шёл корректный пайплайн переноса.
+        """
+        if action != "update" or not isinstance(datetime_payload, dict):
+            return action
+        has_schedule_keys = any(
+            datetime_payload.get(k) not in (None, "")
+            for k in ("date", "date_from", "date_to", "start_at", "end_at")
+        )
+        has_time_constraints = isinstance(datetime_payload.get("time_constraints"), dict) and bool(
+            datetime_payload.get("time_constraints")
+        )
+        return "reschedule" if (has_schedule_keys or has_time_constraints) else action
 
     @staticmethod
     def _pick_allowed_keys(payload: dict[str, Any], allowed_keys: set[str]) -> dict[str, Any]:
@@ -505,6 +534,39 @@ class IntentParserService:
                 fields["duration"] = n
         except (TypeError, ValueError):
             fields.pop("duration", None)
+
+    @staticmethod
+    def _normalize_task_deadline_without_scheduling(
+        *,
+        action: str,
+        entity_type: str | None,
+        fields: dict[str, Any],
+        datetime_payload: dict[str, Any],
+    ) -> None:
+        """
+        Для create task без явного запроса на планирование сохраняем только due_date.
+        Примеры: «до понедельника», «к пятнице», «на завтра».
+        """
+        if action != "create" or entity_type != "task":
+            return
+
+        tc = datetime_payload.get("time_constraints")
+        tc_type = str(tc.get("type") or "").strip().lower() if isinstance(tc, dict) else ""
+        has_exact_slot = datetime_payload.get("start_at") not in (None, "") or datetime_payload.get("end_at") not in (None, "")
+        explicit_planning = has_exact_slot or tc_type in {"exact", "window", "interval", "range"}
+        if explicit_planning:
+            return
+
+        due = (
+            datetime_payload.get("date_to")
+            or datetime_payload.get("date")
+            or datetime_payload.get("date_from")
+        )
+        if due not in (None, "") and fields.get("due_date") in (None, ""):
+            fields["due_date"] = due
+
+        for k in ("date", "date_from", "date_to", "start_at", "end_at", "time_constraints"):
+            datetime_payload.pop(k, None)
 
     @staticmethod
     def _default_duration_create(

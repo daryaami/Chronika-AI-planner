@@ -3,7 +3,7 @@ from __future__ import annotations
 from assistant.domain.action_plan import Action, ActionPlan, ActionType, Entity
 from assistant.services.intent_parser import ParsedIntent
 
-_ACTION_TYPES: frozenset[str] = frozenset({"create", "schedule", "update", "delete", "retrieve"})
+_ACTION_TYPES: frozenset[str] = frozenset({"create", "plan", "reschedule", "update", "delete", "retrieve"})
 
 
 def parsed_intents_to_action_plan(items: list[ParsedIntent]) -> ActionPlan:

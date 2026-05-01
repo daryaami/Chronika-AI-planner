@@ -217,7 +217,7 @@ class AssistantHistoryApi(APIView):
                                         type=openapi.TYPE_ARRAY,
                                         description=(
                                             "UI-блоки ответа ассистента. "
-                                            "Для role=user всегда пустой массив."
+                                            "Для role=user обычно один text-блок."
                                         ),
                                         items=openapi.Schema(type=openapi.TYPE_OBJECT),
                                     ),

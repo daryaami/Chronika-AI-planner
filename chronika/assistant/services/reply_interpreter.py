@@ -266,7 +266,7 @@ class ReplyInterpreterService:
             '{"index": <номер шага с 0>, "merge": {"fields": {}, "query": {}, "datetime": {}, '
             '"filters": {}, "meta": {}}} — указывай только ключи, которые меняются; пустые объекты не добавляй.\n'
             "При необходимости добавить отдельное действие в конец плана (редко) используй actions: массив "
-            '{"context_id": "строка", "type": "create|schedule|update|delete|retrieve", '
+            '{"context_id": "строка", "type": "create|plan|reschedule|update|delete|retrieve", '
             '"target_id": число или null, "data": {}}.\n'
             "Если dialog_intent не select, target_ids должен быть []. Если не new_request, new_intent_raw null.\n"
             f"Текущий план (JSON): {plan_compact}\n"

@@ -50,7 +50,7 @@ class MistralLiveIntentParserTests(TestCase):
         blob = json.dumps(asdict(result), ensure_ascii=False).lower()
         self.assertIn("хлеб", blob)
 
-    def test_parse_schedule_meeting_next_monday_noon(self):
+    def test_parse_reschedule_meeting_next_monday_noon(self):
         user_text = (
             "Перенеси встречу с коллегами на следующий понедельник на 12 часов"
         )
@@ -62,8 +62,8 @@ class MistralLiveIntentParserTests(TestCase):
         self.assertGreaterEqual(len(result.items), 1)
         self.assertIn(
             result.items[0].action,
-            ("schedule", "update"),
-            msg="Ожидается schedule (как в схеме) или update при формулировке «изменить время».",
+            ("reschedule", "update"),
+            msg="Ожидается reschedule (как в схеме) или update при формулировке «изменить время».",
         )
         self.assertEqual(result.items[0].entity_type, "event")
         blob = json.dumps(asdict(result), ensure_ascii=False).lower()

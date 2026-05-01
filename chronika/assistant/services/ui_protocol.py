@@ -75,6 +75,31 @@ def _editable_fields_for_entity(entity_type: str, *, mode: str) -> list[str]:
     return []
 
 
+def _has_meaningful_entity_fields(fields: dict[str, Any]) -> bool:
+    """Фильтрует технические пустышки вида {"start": None, "end": None}."""
+    if not isinstance(fields, dict) or not fields:
+        return False
+    for value in fields.values():
+        if value not in (None, "", [], {}):
+            return True
+    return False
+
+
+def _entity_title_for_block(*, entity_type: str, entity: dict[str, Any], fields: dict[str, Any]) -> str | None:
+    """Стабильный title для UI-карточки, чтобы фронт не показывал undefined."""
+    ent_title = str(entity.get("title") or "").strip() if isinstance(entity, dict) else ""
+    if ent_title:
+        return ent_title
+    et = (entity_type or "").strip().lower()
+    if et == "event":
+        summary = str(fields.get("summary") or "").strip()
+        return summary or None
+    if et == "task":
+        title = str(fields.get("title") or "").strip()
+        return title or None
+    return None
+
+
 def build_ui_blocks(
     *,
     state: str,
@@ -85,6 +110,9 @@ def build_ui_blocks(
     blocks: list[dict[str, Any]] = []
     if (assistant_reply or "").strip():
         blocks.append({"type": "text", "text": assistant_reply.strip()})
+
+    slot_block = _time_slot_block_from_plan(plan)
+    has_slot_selection = slot_block is not None
 
     opts = context.get("disambiguation_options") or []
     if state == DialogState.DISAMBIGUATION.value and isinstance(opts, list) and opts:
@@ -113,7 +141,12 @@ def build_ui_blocks(
             blocks.append({"type": "entity_selection", "entities": entities})
 
     elif plan and isinstance(plan.get("entities"), list) and plan["entities"]:
-        mode = "editable" if state == DialogState.WAITING_CONFIRMATION.value else "readonly"
+        # Пока пользователь выбирает слот, карточка сущности только для контекста (без редактирования).
+        mode = (
+            "editable"
+            if state == DialogState.WAITING_CONFIRMATION.value and not has_slot_selection
+            else "readonly"
+        )
         entities = plan["entities"]
         actions = plan.get("actions") or []
         for i, ent in enumerate(entities):
@@ -140,19 +173,24 @@ def build_ui_blocks(
             if et == "event":
                 _normalize_event_fields_for_ui(fields)
                 _maybe_fill_event_end_from_duration(fields)
+            has_title = bool(str(ent.get("title") or "").strip())
+            # В waiting_clarification не показываем пустые карточки-заглушки.
+            if mode == "readonly" and not has_title and not _has_meaningful_entity_fields(fields):
+                continue
             editable = _editable_fields_for_entity(et, mode=mode)
+            block_title = _entity_title_for_block(entity_type=et, entity=ent, fields=fields)
             blocks.append(
                 {
                     "type": "entity",
                     "entity_type": et,
                     "context_id": str(ent.get("context_id") or f"e{i}"),
+                    "title": block_title,
                     "mode": mode,
                     "fields": fields,
                     "editable_fields": editable,
                 }
             )
 
-    slot_block = _time_slot_block_from_plan(plan)
     if slot_block:
         blocks.append(slot_block)
 

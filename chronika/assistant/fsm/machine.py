@@ -262,6 +262,26 @@ class FsmMachine:
                 "FSM: Action Plan после merge (ветка MODIFY)",
                 action_plan=pretty_data(action_plan_to_dict(merged)),
             )
+            if snapshot.state == DialogState.WAITING_CLARIFICATION:
+                merged = self._promote_query_for_clarification(merged, user_message=user_message)
+                search = self.search_stage.resolve_targets_in_plan(user=user, plan=merged)
+                trace(
+                    "FSM: Action Plan после SearchStage (ветка MODIFY / waiting_clarification)",
+                    action_plan=pretty_data(action_plan_to_dict(search.plan)),
+                    следующее_состояние_fsm=search.next_state.value,
+                    подсказка_ассистента=pretty_data({"text": search.assistant_hint or ""}),
+                )
+                if search.next_state != DialogState.WAITING_CONFIRMATION:
+                    return FsmTurnResult(
+                        snapshot=DialogSessionSnapshot(
+                            state=search.next_state,
+                            plan=search.plan,
+                            context=replace(snapshot.context, disambiguation_options=list(search.disambiguation_options)),
+                            last_referenced_id=snapshot.last_referenced_id,
+                        ),
+                        assistant_reply=search.assistant_hint or "Нужно уточнение.",
+                    )
+                merged = search.plan
             sched_merged, sched_hint = self.scheduler.apply_to_plan(user, merged)
             trace(
                 "FSM: Action Plan после Scheduler (MODIFY)",
@@ -286,6 +306,46 @@ class FsmMachine:
             snapshot=snapshot,
             assistant_reply="Нужно уточнение: переформулируйте или ответьте на вопрос выше.",
         )
+
+    @staticmethod
+    def _promote_query_for_clarification(plan: ActionPlan, *, user_message: str) -> ActionPlan:
+        """
+        После waiting_clarification ReplyInterpreter нередко кладёт уточнение в fields/title.
+        Для plan/reschedule/update/delete/retrieve поднимаем это в query, чтобы SearchStage смог найти target_id.
+        """
+        out_actions: list = []
+        fallback_text = (user_message or "").strip()
+        for action in plan.actions:
+            data = dict(action.data) if isinstance(action.data, dict) else {}
+            code = str(data.get("action") or "").strip().lower()
+            if code not in {"plan", "reschedule", "update", "delete", "retrieve"}:
+                out_actions.append(action)
+                continue
+            query = data.get("query")
+            query_dict = dict(query) if isinstance(query, dict) else {}
+            has_query_text = any(
+                str(query_dict.get(k) or "").strip() for k in ("title", "summary", "description", "notes")
+            )
+            if not has_query_text:
+                fields = data.get("fields")
+                fields_dict = dict(fields) if isinstance(fields, dict) else {}
+                seed = (
+                    str(fields_dict.get("summary") or "").strip()
+                    or str(fields_dict.get("title") or "").strip()
+                    or fallback_text
+                )
+                if seed:
+                    et = str(data.get("entity_type") or "").strip().lower()
+                    query_key = "summary" if et == "event" else "title"
+                    query_dict[query_key] = seed
+                    data["query"] = query_dict
+            out_actions.append(
+                replace(
+                    action,
+                    data=data,
+                )
+            )
+        return ActionPlan(actions=out_actions, entities=list(plan.entities))
 
     @staticmethod
     def _primary_target_id(plan: ActionPlan | None) -> int | None:

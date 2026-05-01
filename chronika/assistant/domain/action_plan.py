@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
-ActionType = Literal["create", "schedule", "update", "delete", "retrieve"]
+ActionType = Literal["create", "plan", "reschedule", "update", "delete", "retrieve"]
 
 
 @dataclass
@@ -85,7 +85,7 @@ def _optional_int(raw: Any) -> int | None:
 
 def coerce_action_type(raw: Any) -> ActionType:
     value = str(raw or "").strip().lower()
-    allowed: set[ActionType] = {"create", "schedule", "update", "delete", "retrieve"}
+    allowed: set[ActionType] = {"create", "plan", "reschedule", "update", "delete", "retrieve"}
     if value in allowed:
         return value  # type: ignore[return-value]
     return "retrieve"
