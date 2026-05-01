@@ -142,7 +142,7 @@ const deleteAccount = async () => {
               text="Back"
               weight="bold"
               size="l"
-              type="accent"
+              variant="accent"
               @click="goBack"
     />
   </div>
@@ -174,7 +174,7 @@ const deleteAccount = async () => {
           <div class="profile-field__label-wrapper">
             <span class="profile-field__label">Connected Calendars ({{ displayedCalendarsCount }})</span>
             <IconText tag="button"
-                      type="accent"
+                      variant="accent"
                       size="m"
                       weight="reg"
                       text="Edit"
@@ -204,7 +204,7 @@ const deleteAccount = async () => {
           <span class="profile-field__value">This action will remove all your data. It is irreversible. </span>
           <IconText class="profile-page__delete"
                     tag="button"
-                    type="error"
+                    variant="error"
                     size="m"
                     text="Delete Account"
                     @click="isDeletePopupOpened = true"

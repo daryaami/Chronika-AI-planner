@@ -73,7 +73,12 @@ class Event(models.Model):
     description = models.TextField(null=True, blank=True, help_text="Описание события")
     start = models.DateTimeField(null=True, blank=True, help_text="Дата начала события")
     end = models.DateTimeField(null=True, blank=True, help_text="Дата окончания события")
-    htmlLink = models.URLField(null=True, blank=True, help_text="Ссылка на событие в Google Calendar")
+    htmlLink = models.URLField(
+        max_length=1024,
+        null=True,
+        blank=True,
+        help_text="Ссылка на событие в Google Calendar",
+    )
     organizer_email = models.EmailField(null=True, blank=True, help_text="Email организатора")
     embedding = VectorField(dimensions=1024, null=True, blank=True)
     embedding_status = models.CharField(

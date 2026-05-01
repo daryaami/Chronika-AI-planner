@@ -13,7 +13,9 @@ import LoaderVue from '../components/blocks/loaders/Loader.vue';
 import {useEventsStore} from "@/store/events";
 import {getEndOfMonth, getStartOfMonth} from "@/components/js/time-utils";
 import AsideTasksList from "@/components/blocks/tasks/AsideTasksList.vue";
-import EventPopup from "@/components/blocks/planner/EventPopup.vue";
+import EventPopup from "@/components/blocks/planner/event/EventPopup.vue";
+import EventCreatePopup from "@/components/blocks/planner/event/EventCreatePopup.vue";
+import AssistantWindow from "@/components/blocks/assistant/AssistantWindow.vue";
 
 const isLoading = ref<boolean>(true);
 
@@ -25,6 +27,7 @@ const eventsStore = useEventsStore()
 const currentDate = ref<Date | null>(null)
 
 const selectedEvent = ref<EventInput | null>(null)
+const createPopupRef = ref<InstanceType<typeof EventCreatePopup> | null>(null)
 
 const updateEventTimeFromCalendar = (info: EventDragStopArg) => {
   const id = info.event.id
@@ -42,9 +45,39 @@ const updateEventTimeFromCalendar = (info: EventDragStopArg) => {
 }
 
 const eventClickHandler = (info: EventClickArg) => {
-  selectedEvent.value = info.event
+  selectedEvent.value = info.event as EventInput
 }
 
+const syncCalendarEvents = (newEvents: EventInput[]) => {
+  if (!calendarApi.value) return
+
+  const calendarEvents = calendarApi.value.getEvents()
+  const map = new Map(newEvents.map(e => [e.id, e]))
+
+  // ❌ удалить лишние
+  for (const ev of calendarEvents) {
+    if (!map.has(ev.id)) {
+      ev.remove()
+    }
+  }
+
+  // ➕ добавить или обновить
+  for (const e of newEvents) {
+    if (!e.id) return
+    const existing = calendarApi.value.getEventById(e.id)
+
+    if (existing) {
+      existing.setDates(e.start as string, e.end as string)
+      existing.setProp('title', e.title || '')
+    } else {
+      calendarApi.value.addEvent(e)
+    }
+  }
+}
+
+const openCreatePopup = (info: any) => {
+  createPopupRef.value?.open(info.date)
+}
 
 const calendarOptions: CalendarOptions = {
   plugins: [timeGridPlugin, interactionPlugin],
@@ -84,7 +117,7 @@ const calendarOptions: CalendarOptions = {
 
     await eventsStore.getEvents(
       getStartOfMonth(prevMonth),
-      getEndOfMonth(nextMonth)  
+      getEndOfMonth(nextMonth)
     )
 
     isLoading.value = false
@@ -95,7 +128,10 @@ const calendarOptions: CalendarOptions = {
     const createdEvent = await eventsStore.createEvent(info)
     info.event.setExtendedProp('googleEvent', createdEvent)
   },
-  eventClick: eventClickHandler
+  eventClick: eventClickHandler,
+  dateClick: (info) => {
+    openCreatePopup(info) // дата/время клика
+  }
 }
 
 onMounted(async () => {
@@ -103,34 +139,16 @@ onMounted(async () => {
 
   calendarApi.value = calendarInstance.value.getApi()
   currentDate.value = calendarApi.value.getDate()
+
+  if (eventsStore.events.length && calendarApi.value.getEvents().length === 0) {
+    syncCalendarEvents(eventsStore.events)
+  }
 })
 
 watch(
   () => eventsStore.events,
   (newEvents) => {
-    if (!calendarApi.value) return
-
-    const calendarEvents = calendarApi.value.getEvents()
-    const map = new Map(newEvents.map(e => [e.id, e]))
-
-    // ❌ удалить лишние
-    for (const ev of calendarEvents) {
-      if (!map.has(ev.id)) {
-        ev.remove()
-      }
-    }
-
-    // ➕ добавить или обновить
-    for (const e of newEvents) {
-      const existing = calendarApi.value.getEventById(e.id)
-
-      if (existing) {
-        existing.setDates(e.start as string, e.end as string)
-        existing.setProp('title', e.title || '')
-      } else {
-        calendarApi.value.addEvent(e)
-      }
-    }
+    syncCalendarEvents(newEvents)
   },
   { deep: true }
 )
@@ -156,9 +174,12 @@ watch(
                     @close="selectedEvent = null"
                     @delete="selectedEvent?.remove(); selectedEvent = null"
         />
+        <EventCreatePopup ref="createPopupRef" />
       </div>
   </div>
   <AsideTasksList />
+  <AssistantWindow class="planner__assistant-window" />
+
 </div>
 
 
@@ -177,6 +198,8 @@ watch(
   grid-template-rows: auto 1fr;
   overflow: hidden;
   flex-grow: 1;
+
+  position: relative;
 
   &__weekday {
     font: var(--bold-10);
@@ -201,6 +224,13 @@ watch(
     display: flex;
     align-items: center;
     justify-content: center;
+  }
+
+  &__assistant-window {
+    position: fixed;
+    right: 374px;
+    bottom: 36px;
+    z-index: 100000000;
   }
 }
 

@@ -50,8 +50,6 @@ const sortingButtons: Button[] = [
 .task-header {
   padding: 15px 38px;
 
-  margin-bottom: 24px;
-
   display: flex;
   align-items: center;
   gap: 44px;

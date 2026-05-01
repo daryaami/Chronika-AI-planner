@@ -58,6 +58,14 @@ const router = createRouter({
         metaTitle: 'Profile'
       },
     },
+    {
+      path: '/api-tester',
+      component: () => import("../views/ApiTesterView.vue"),
+      meta: {
+        layout: 'default',
+        metaTitle: 'API Tester'
+      },
+    },
   ],
 })
 

@@ -11,7 +11,7 @@ export const useTasksStore = defineStore('tasks', () => {
   const authStore = useAuthStore()
 
   const fetchTasks = async () => {
-    const fetchFn = () => fetch(`${BASE_API_URL}/tasks`, {
+    const fetchFn = () => fetch(`${BASE_API_URL}/tasks/`, {
         method: 'GET',
         credentials: 'include',
         headers: {

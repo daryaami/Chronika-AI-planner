@@ -65,14 +65,14 @@ const formatDueDate = (date: Date): string => {
   endOfWeek.setHours(23, 59, 59, 999)
 
   if (date >= startOfWeek && date <= endOfWeek) {
-    return date.toLocaleString("en-US", {
+    return date.toLocaleString("ru", {
       weekday: "short",
       hour: "2-digit",
       minute: "2-digit",
       hour12: false
     }).replace(",", "")
   } else {
-    return date.toLocaleString("en-US", {
+    return date.toLocaleString("ru", {
       day: "numeric",
       month: "long"
     })

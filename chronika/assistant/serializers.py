@@ -1,2 +1,5 @@
+"""
+Резерв под сериализаторы assistant-приложения.
 
-from rest_framework import serializers
+Публичный ответ API message/action — только message_id, state, blocks (см. apis).
+"""

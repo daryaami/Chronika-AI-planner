@@ -126,6 +126,11 @@ const categoryName = computed(() => {
     display: block;
     width: fit-content;
 
+    max-width: 100%;
+    overflow: hidden;
+
+    text-overflow: ellipsis;
+
     &:after {
       animation: line-through .3s linear;
     }

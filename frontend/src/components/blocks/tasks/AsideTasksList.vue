@@ -103,7 +103,7 @@ const setTaskEl = (el: Element | ComponentPublicInstance | null, task: UiTask) =
 }
 
 .aside-tasks {
-  min-width: 330px;
+  width: 330px;
   padding: 22px 12px;
   box-shadow: 0 0 18px 0 rgba(0, 0, 0, 0.08);
   z-index: 10;

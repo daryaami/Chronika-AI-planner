@@ -7,8 +7,8 @@ withDefaults(defineProps<{
   weight?: UIWeight,
   leftIcon?: string,
   text?: string,
-  rightIcon?: string
-  type?: 'accent' | 'error',
+  rightIcon?: string,
+  variant?: 'accent' | 'error' | 'tertiary',
 }>(), {
   size: 'm',
   tag: 'button',
@@ -19,7 +19,7 @@ withDefaults(defineProps<{
 <template>
   <component :is="tag"
              class="icon-text"
-             :class="`icon-text--${size} icon-text--${weight} ${type ? `icon-text--${type}` : ''}`">
+             :class="`icon-text--${size} icon-text--${weight} ${variant ? `icon-text--${variant}` : ''}`">
     <svg v-if="leftIcon" width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
       <use :href="`#${leftIcon}`"></use>
     </svg>
@@ -48,10 +48,6 @@ withDefaults(defineProps<{
 
   @include hover {
     color: var(--text-primary-hover);
-
-    & svg {
-      color: var(--icon-primary-hover);
-    }
   }
 
   & svg {
@@ -78,6 +74,17 @@ withDefaults(defineProps<{
     }
   }
 
+  &--s {
+    font: var(--light-14);
+    gap: 4px;
+
+    & svg {
+      display: block;
+      width: 16px;
+      height: 16px;
+    }
+  }
+
   &--bold {
     font-weight: 400;
     gap: 6px;
@@ -92,6 +99,14 @@ withDefaults(defineProps<{
 
     @include hover {
       color: var(--text-error);
+    }
+  }
+
+  &--tertiary {
+    color: var(--text-primary-disabled);
+
+    @include hover {
+      color: var(--text-primary);
     }
   }
 }

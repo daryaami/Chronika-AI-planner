@@ -99,6 +99,11 @@ class EventNotFoundError(APIException):
     default_detail = "Событие не найдено."
     default_code = "event_not_found"
 
+class CalendarWriteAccessDeniedError(APIException):
+    status_code = status.HTTP_404_NOT_FOUND
+    default_detail = "Нет прав на запись в выбранный календарь."
+    default_code = "calendar_write_access_denied"
+
 class CalendarNotFoundError(APIException):
     status_code = status.HTTP_404_NOT_FOUND
     default_detail = "Календарь не найден."
@@ -117,3 +122,13 @@ class UserNotFoundError(APIException):
     status_code = status.HTTP_404_NOT_FOUND
     default_detail = "Пользователь не найден."
     default_code = "user_not_found"
+
+
+class AssistantLLMParseError(APIException):
+    """Сбой вызова LLM или разбора JSON при работе ассистента (после повторной попытки)."""
+
+    status_code = status.HTTP_502_BAD_GATEWAY
+    default_detail = (
+        "Не удалось обработать ответ языковой модели. Попробуйте отправить сообщение ещё раз."
+    )
+    default_code = "assistant_llm_parse_error"

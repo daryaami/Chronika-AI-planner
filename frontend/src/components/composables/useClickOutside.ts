@@ -1,4 +1,4 @@
-import { onMounted, onBeforeUnmount } from "vue";
+import { onMounted, onBeforeUnmount, Ref } from "vue";
 
 export function useClickOutside(elRef: Ref<HTMLElement | null>, cb: () => void) {
   function handler(e: MouseEvent) {
