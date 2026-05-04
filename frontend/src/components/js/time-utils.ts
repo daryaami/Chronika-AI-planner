@@ -83,7 +83,7 @@ const formatDueDate = (date: Date): string => {
 const toWeekDayAndDate = (date: Date): string => {
   // Thu, 8 Aug
 
-  return new Intl.DateTimeFormat("en-US", {
+  return new Intl.DateTimeFormat("ru", {
     weekday: "short",
     day: "numeric",
     month: "short",
@@ -92,7 +92,7 @@ const toWeekDayAndDate = (date: Date): string => {
 
 // Возвращает месяц и год в формате "MMM YYYY" (например: "Nov 2023")
 const getMonthAndYear = (date: Date): string => {
-  return new Intl.DateTimeFormat("en-US", {
+  return new Intl.DateTimeFormat("ru", {
     month: "short",
     year: "numeric"
   }).format(date);

@@ -109,6 +109,40 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  const updateEntity = async (messageId: string, contextId: string, fields: Record<string, any>) => {
+    const fetchFn = () =>
+      fetch(`${BASE_API_URL}/assistant/action/`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Authorization': `JWT ${authStore.getAccessToken()}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          message_id: messageId,
+          action: {
+            type: 'entity_update',
+            payload: {
+              context_id: contextId,
+              fields
+            }
+          }
+        })
+      })
+
+    isFetching.value = true;
+
+    const response = await authStore.ensureAuthorizedRequest(fetchFn)
+
+    isFetching.value = false;
+    if (response.ok) {
+      const responseData = await response.json() as ChatMessageType
+      messages.value.push(responseData)
+    } else {
+      toastStore.addToast('Произошла ошибка при обновлении события😔 Попробуйте ещё раз', 3000)
+    }
+  }
+
   const clearHistory = async () => {
     const fetchFn = () =>
       fetch(`${BASE_API_URL}/assistant/clear/`, {
@@ -135,6 +169,7 @@ export const useChatStore = defineStore('chat', () => {
     sendMessage,
     fetchHistory,
     confirmMessage,
+    updateEntity,
     clearHistory,
   }
 })

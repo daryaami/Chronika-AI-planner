@@ -230,7 +230,7 @@ watch(
     position: fixed;
     right: 374px;
     bottom: 36px;
-    z-index: 100000000;
+    z-index: 10;
   }
 }
 

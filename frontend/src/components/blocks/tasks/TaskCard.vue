@@ -205,7 +205,7 @@ const userCategoryIdModel = computed({
   border-radius: 15px;
   height: 100%;
 
-  overflow: auto;
+  overflow-x: visible;
 
   width: 100%;
   box-shadow: 0 0 6px 0 rgba(0, 0, 0, 0.07);

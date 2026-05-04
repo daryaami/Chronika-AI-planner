@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { ref, nextTick } from 'vue';
 import IconBtn from "@/components/ui-kit/btns/IconBtn.vue";
-import TextTitleInput from "@/components/ui-kit/inputs/TextTitleInput.vue";
+import TextTitleInput from "@/components/ui-kit/inputs/text/TextTitleInput.vue";
 import EventCalendarSelect from "@/components/blocks/planner/event/EventCalendarSelect.vue";
 import EventTimeSelect from "@/components/blocks/planner/event/EventTimeSelect.vue";
-import TextField from "@/components/ui-kit/inputs/TextField.vue";
+import TextField from "@/components/ui-kit/inputs/text/TextField.vue";
 import ActionBtn from "@/components/ui-kit/btns/ActionBtn.vue";
 import { useEventsStore } from "@/store/events";
 
