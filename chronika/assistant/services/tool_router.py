@@ -215,14 +215,51 @@ class ToolRouter:
                 user_calendar__user=self.user,
             ).filter(Q(start__lt=end) & Q(end__gt=start))
         )
+        preference_context = self._build_preference_context(payload)
         slots = self.scheduler.suggest_slots_in_window(
             events=events,
             window_start=start,
             window_end=end,
             duration_minutes=duration,
             limit=int(payload.get("limit") or 5),
+            preference_context=preference_context,
         )
         return {"ok": True, "data": {"slots": slots}}
+
+    def _build_preference_context(self, payload: dict[str, Any]) -> dict[str, Any]:
+        planning_context = dict(payload.get("planning_context") or {})
+        target_embedding = self._resolve_planning_embedding(planning_context)
+        history_events = list(
+            Event.objects.filter(
+                user_calendar__user=self.user,
+                start__isnull=False,
+                embedding__isnull=False,
+            ).order_by("-start")[:500]
+        )
+        return {
+            "target_embedding": target_embedding,
+            "history_events": history_events,
+        }
+
+    def _resolve_planning_embedding(self, planning_context: dict[str, Any]) -> list[float]:
+        task_id = self._validated_task_id(planning_context.get("task_id"))
+        if task_id:
+            task = Task.objects.filter(user=self.user, id=task_id).first()
+            if task and task.embedding is not None:
+                return task.embedding.tolist() if hasattr(task.embedding, "tolist") else list(task.embedding)
+
+        title = str(planning_context.get("title") or "").strip()
+        if not title:
+            return []
+        try:
+            from assistant.integrations.embeddings_model import EmbeddingsModelProvider
+
+            embedding = EmbeddingsModelProvider.encode(title)
+            if hasattr(embedding, "tolist"):
+                return embedding.tolist()
+            return list(embedding or [])
+        except Exception:
+            return []
 
     def _resolve_task(self, payload: dict[str, Any]) -> Task | None:
         if payload.get("task_id"):
