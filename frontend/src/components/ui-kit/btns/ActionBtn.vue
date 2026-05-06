@@ -16,7 +16,7 @@ defineEmits<{
     class="action-btn"
     :class="`action-btn--${variant || 'primary'}${size? 'action-btn--' + size : ''}`"
     :type="type || 'button'"
-    @click="$emit('click')"
+    @click.stop="$emit('click')"
   >
     {{ text }}
   </button>

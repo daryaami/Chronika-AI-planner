@@ -3,7 +3,7 @@ import AssistantIcon from "@/components/blocks/assistant/AssistantIcon.vue";
 import { ref, onMounted, onUnmounted } from "vue";
 import IconBtn from "@/components/ui-kit/btns/IconBtn.vue";
 import { useClickOutside } from "@/components/composables/useClickOutside";
-import ChatTextInput from "@/components/ui-kit/inputs/ChatTextInput.vue";
+import ChatTextInput from "@/components/ui-kit/inputs/text/ChatTextInput.vue";
 import {useChatStore} from "@/store/chat";
 import AssistantChat from "@/components/blocks/assistant/AssistantChat.vue";
 import IconText from "@/components/ui-kit/links/IconText.vue";
