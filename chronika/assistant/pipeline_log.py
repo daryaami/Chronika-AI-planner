@@ -14,8 +14,6 @@ from contextvars import ContextVar
 from dataclasses import asdict
 from typing import Any
 
-from assistant.domain.dialog import ReplyInterpretation
-
 _logger = logging.getLogger("assistant.pipeline")
 
 _ctx: ContextVar[dict[str, Any]] = ContextVar("assistant_pipeline_ctx", default={})
@@ -106,15 +104,19 @@ def pretty_json_text(raw: str | None, *, max_len: int = _TRACE_MAX) -> str:
     return s
 
 
-def interpretation_to_dict(interp: ReplyInterpretation) -> dict[str, Any]:
+def interpretation_to_dict(interp: Any) -> dict[str, Any]:
+    dialog_intent = getattr(interp, "dialog_intent", None)
+    dialog_intent_value = getattr(dialog_intent, "value", dialog_intent)
+    new_intent_candidate = getattr(interp, "new_intent_candidate", None)
+    new_intent_payload = None
+    if new_intent_candidate is not None:
+        new_intent_payload = {"raw": getattr(new_intent_candidate, "raw", str(new_intent_candidate))}
     return {
-        "dialog_intent": interp.dialog_intent.value,
-        "actions": interp.actions,
-        "target_ids": interp.target_ids,
-        "new_intent_candidate": (
-            {"raw": interp.new_intent_candidate.raw} if interp.new_intent_candidate else None
-        ),
-        "step_patches": interp.step_patches,
+        "dialog_intent": dialog_intent_value,
+        "actions": getattr(interp, "actions", []),
+        "target_ids": getattr(interp, "target_ids", []),
+        "new_intent_candidate": new_intent_payload,
+        "step_patches": getattr(interp, "step_patches", []),
     }
 
 

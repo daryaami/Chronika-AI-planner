@@ -14,12 +14,18 @@ from assistant.services.dialog_session_store import (
 )
 
 
+def _public_state(state: str) -> str:
+    if state == "awaiting_confirmation":
+        return "waiting_confirmation"
+    return state
+
+
 class AssistantMessageApi(APIView):
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
         operation_description=(
-            "Текстовое сообщение ассистенту. Ответ: только message_id, state, blocks (UI-протокол)."
+            "Текстовое сообщение ассистенту. Ответ: message_id, state и blocks."
         ),
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
@@ -81,7 +87,7 @@ class AssistantMessageApi(APIView):
             )
             payload = {
                 "message_id": message_id,
-                "state": orchestrator_result.state,
+                "state": _public_state(orchestrator_result.state),
                 "blocks": blocks,
             }
             trace(
@@ -102,7 +108,7 @@ class AssistantActionApi(APIView):
     @swagger_auto_schema(
         operation_description=(
             "Событие UI (подтверждение, выбор сущности, правка полей и т.д.). "
-            "Ответ как у message: только message_id, state, blocks."
+            "Ответ как у message: message_id, state и blocks."
         ),
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
@@ -136,7 +142,7 @@ class AssistantActionApi(APIView):
             orchestrator_result, message_id, blocks = run_assistant_ui_action(user, body)
             payload = {
                 "message_id": message_id,
-                "state": orchestrator_result.state,
+                "state": _public_state(orchestrator_result.state),
                 "blocks": blocks,
             }
             trace(

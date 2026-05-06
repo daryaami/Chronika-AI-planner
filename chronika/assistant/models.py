@@ -8,8 +8,6 @@ import uuid
 from django.conf import settings
 from django.db import models
 
-from assistant.fsm.states import DialogState
-
 User = settings.AUTH_USER_MODEL
 
 
@@ -25,7 +23,7 @@ class AssistantSession(models.Model):
 
     dialog_state = models.CharField(
         max_length=64,
-        default=DialogState.IDLE.value,
+        default="idle",
         help_text="Состояние FSM (idle, waiting_confirmation, …).",
     )
     action_plan = models.JSONField(

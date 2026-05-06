@@ -1,92 +1,57 @@
 """
-Live Mistral calls. Not run by default (cost + flakiness).
+Live Mistral integration tests for current orchestration path.
+Not run by default (cost + flakiness).
 
   set RUN_LLM_INTEGRATION=1
   set MISTRAL_API_KEY=...   (or load via .env as usual)
-
-  py manage.py test assistant.tests.integration.test_llm_integration
-  Чтобы прогнать живой вызов:
-    $env:RUN_LLM_INTEGRATION="1"
-    # MISTRAL_API_KEY уже должен быть в .env / окружении
-    py manage.py test assistant.tests.integration.test_llm_integration
+  py -m pytest chronika/assistant/tests/integration/test_llm_integration.py
 """
 
 import json
 import os
 import unittest
-from dataclasses import asdict
 
 from django.conf import settings
 from django.test import TestCase
 
-from assistant.services.intent_parser import IntentParserService, ParsedIntentResult
-
-
-def _print_live_parse(user_text: str, result: ParsedIntentResult) -> None:
-    print("\n--- Запрос пользователя ---\n", user_text, sep="")
-    print("\n--- Сырой ответ модели ---\n", result.raw_response or "(нет: сработал fallback)", sep="")
-    print(
-        "\n--- Нормализованный результат (items) ---\n",
-        json.dumps(asdict(result), ensure_ascii=False, indent=2),
-        sep="",
-    )
+from assistant.integrations.llm_client import MistralLLMClient
+from assistant.prompts.tool_schemas import get_orchestrator_tool_schemas
 
 
 @unittest.skipUnless(
     os.environ.get("RUN_LLM_INTEGRATION") == "1" and bool(getattr(settings, "MISTRAL_API_KEY", None)),
     "Set RUN_LLM_INTEGRATION=1 and MISTRAL_API_KEY to run live LLM tests",
 )
-class MistralLiveIntentParserTests(TestCase):
-    def test_parse_create_task_russian(self):
-        user_text = "Создай задачу купить хлеб на завтра"
-        parser = IntentParserService()
-        result = parser.parse(user_text)
+class MistralLiveIntegrationTests(TestCase):
+    def setUp(self):
+        self.client = MistralLLMClient()
 
-        _print_live_parse(user_text, result)
-
-        self.assertGreaterEqual(len(result.items), 1)
-        self.assertEqual(result.items[0].action, "create")
-        self.assertEqual(result.items[0].entity_type, "task")
-        blob = json.dumps(asdict(result), ensure_ascii=False).lower()
-        self.assertIn("хлеб", blob)
-
-    def test_parse_reschedule_meeting_next_monday_noon(self):
-        user_text = (
-            "Перенеси встречу с коллегами на следующий понедельник на 12 часов"
+    def test_chat_text_returns_non_empty_reply(self):
+        reply = self.client.chat_text(
+            system_prompt="Отвечай кратко на русском языке.",
+            user_prompt="Скажи одним словом привет.",
+            fallback="fallback",
+            temperature=0.0,
         )
-        parser = IntentParserService()
-        result = parser.parse(user_text)
+        print("\n--- chat_text reply ---\n", reply, sep="")
+        self.assertIsInstance(reply, str)
+        self.assertTrue(reply.strip())
 
-        _print_live_parse(user_text, result)
-
-        self.assertGreaterEqual(len(result.items), 1)
-        self.assertIn(
-            result.items[0].action,
-            ("reschedule", "update"),
-            msg="Ожидается reschedule (как в схеме) или update при формулировке «изменить время».",
+    def test_chat_with_tools_returns_valid_shape(self):
+        result = self.client.chat_with_tools(
+            messages=[
+                {"role": "system", "content": "Ты ассистент-планировщик. Используй tools при необходимости."},
+                {"role": "user", "content": "Покажи мои задачи на сегодня"},
+            ],
+            tools=get_orchestrator_tool_schemas(),
+            fallback={"content": "", "tool_calls": []},
+            temperature=0.0,
         )
-        self.assertEqual(result.items[0].entity_type, "event")
-        blob = json.dumps(asdict(result), ensure_ascii=False).lower()
-        self.assertIn("коллег", blob)
-        self.assertIn("12", blob)
-
-    def test_parse_multiple_intents_nails_appointment_and_bread_task(self):
-        user_text = (
-            "Завтра у меня в час запись на ноготочки, еще нужно добавить задачу купить хлеб завтра."
-        )
-        parser = IntentParserService()
-        result = parser.parse(user_text)
-
-        _print_live_parse(user_text, result)
-
-        self.assertGreaterEqual(
-            len(result.items),
-            2,
-            "Ожидалось минимум два намерения (запись и задача).",
-        )
-        blob = json.dumps(asdict(result), ensure_ascii=False).lower()
-        self.assertIn("хлеб", blob)
-        self.assertTrue(
-            any(x in blob for x in ("ногот", "маник", "запис")),
-            "В разборе должны отразиться запись или ноготочки.",
-        )
+        print("\n--- chat_with_tools result ---\n", json.dumps(result, ensure_ascii=False, indent=2), sep="")
+        self.assertIn("content", result)
+        self.assertIn("tool_calls", result)
+        self.assertIsInstance(result["tool_calls"], list)
+        for call in result["tool_calls"]:
+            self.assertIn("function", call)
+            self.assertIsInstance(call["function"].get("name"), str)
+            self.assertIsInstance(call["function"].get("arguments"), str)

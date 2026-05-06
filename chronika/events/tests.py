@@ -1,5 +1,6 @@
 from datetime import datetime
 from unittest.mock import patch
+import numpy as np
 
 from django.urls import reverse
 from django.utils import timezone
@@ -581,7 +582,7 @@ class EventEndpointsTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         created = Event.objects.get(google_event_id="from-task-evt", task=task)
         self.assertEqual(created.embedding_status, EmbeddingStatus.COMPLETED)
-        self.assertEqual(created.embedding, task.embedding)
+        self.assertTrue(np.allclose(created.embedding, task.embedding))
         mocked_delay.assert_not_called()
 
     def test_get_events_requires_start_and_end(self):

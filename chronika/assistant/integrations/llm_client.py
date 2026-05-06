@@ -127,3 +127,73 @@ class MistralLLMClient:
 
         result = self._chat_completions(payload)
         return self._extract_text_content(result)
+
+    def chat_text(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        fallback: str = "",
+        temperature: float = 0.2,
+    ) -> str:
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        try:
+            return self.chat_with_messages(messages=messages, temperature=temperature, max_tokens=900)
+        except Exception:
+            return fallback
+
+    def chat_with_tools(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        fallback: dict[str, Any] | None = None,
+        tool_choice: str = "auto",
+        temperature: float = 0.0,
+    ) -> dict[str, Any]:
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "tools": tools,
+            "tool_choice": tool_choice,
+            "temperature": temperature,
+            "max_tokens": 1200,
+        }
+        try:
+            result = self._chat_completions(payload)
+            message = ((result.get("choices") or [{}])[0] or {}).get("message") or {}
+            content = message.get("content")
+            raw_tool_calls = message.get("tool_calls")
+            tool_calls: list[dict[str, Any]] = []
+            if isinstance(raw_tool_calls, list):
+                for item in raw_tool_calls:
+                    if not isinstance(item, dict):
+                        continue
+                    fn = item.get("function")
+                    if not isinstance(fn, dict):
+                        continue
+                    name = fn.get("name")
+                    if not isinstance(name, str) or not name.strip():
+                        continue
+                    arguments = fn.get("arguments")
+                    if not isinstance(arguments, str):
+                        arguments = "{}"
+                    tool_calls.append(
+                        {
+                            "id": str(item.get("id") or ""),
+                            "type": "function",
+                            "function": {
+                                "name": name.strip(),
+                                "arguments": arguments,
+                            },
+                        }
+                    )
+            return {
+                "content": content if isinstance(content, str) else "",
+                "tool_calls": tool_calls,
+            }
+        except Exception as exc:
+            logger.warning("chat_with_tools failed: %s", exc)
+            return fallback or {"content": "", "tool_calls": []}
