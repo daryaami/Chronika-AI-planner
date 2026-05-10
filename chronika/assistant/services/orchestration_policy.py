@@ -115,34 +115,13 @@ class OrchestrationPolicy:
         query = str(payload.get("target_query") or user_text).strip()
         if not query:
             return {"status": "failed", "message": "target query is missing"}
-        res = self.tool_router.execute("search_entities", {"query": query, "entity_type": entity_type})
-        if not res.get("ok"):
-            return {"status": "failed", "message": (res.get("error") or {}).get("message", "search failed")}
-        items = self._filter_lexical_matches(query=query, items=(res.get("data") or {}).get("items") or [])
+        items = self.tool_router.candidate_items_for_target_resolution(
+            query=query,
+            entity_type=entity_type,
+        )
         if not items:
             return {"status": "failed", "message": f"{entity_type} not found"}
         if len(items) == 1:
             payload[target_field] = items[0]["id"]
             return {"status": "ok"}
-        return {"status": "needs_disambiguation", "candidates": items[:5]}
-
-    @staticmethod
-    def _filter_lexical_matches(*, query: str, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        normalized_query = str(query or "").strip().lower()
-        if not normalized_query:
-            return [item for item in items if isinstance(item, dict)]
-        lexical: list[dict[str, Any]] = []
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            data = item.get("data") if isinstance(item.get("data"), dict) else {}
-            haystack = " ".join(
-                [
-                    str(data.get("title") or ""),
-                    str(data.get("summary") or ""),
-                    str(data.get("description") or ""),
-                ]
-            ).strip().lower()
-            if normalized_query in haystack:
-                lexical.append(item)
-        return lexical or [item for item in items if isinstance(item, dict)]
+        return {"status": "needs_disambiguation", "candidates": list(items)}

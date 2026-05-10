@@ -1,8 +1,16 @@
-from rest_framework import viewsets, permissions
 from django.db.models import Q
-from .models import Task, Category
-from .serializers import TaskSerializer, CategorySerializer
-from .services import enqueue_task_embedding
+from rest_framework import permissions, serializers, viewsets
+
+from tasks.services import (
+    MissingPrimaryCalendarError,
+    build_task_create_kwargs,
+    create_task,
+    refresh_task_embedding_if_text_changed,
+)
+
+from .models import Category, Task
+from .serializers import CategorySerializer, TaskSerializer
+
 
 class IsOwnerOrReadOnly(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
@@ -19,17 +27,26 @@ class TaskViewSet(viewsets.ModelViewSet):
         return Task.objects.filter(user=self.request.user)
 
     def perform_create(self, serializer):
-        task = serializer.save(user=self.request.user)
-        enqueue_task_embedding(task)
+        try:
+            kwargs = build_task_create_kwargs(
+                self.request.user, serializer.validated_data
+            )
+        except MissingPrimaryCalendarError:
+            raise serializers.ValidationError(
+                "У пользователя нет основного календаря."
+            ) from None
+        task = create_task(**kwargs)
+        serializer.instance = task
 
     def perform_update(self, serializer):
         instance = serializer.instance
         old_title = instance.title
         old_notes = instance.notes or ""
-        task = serializer.save()
-        text_changed = task.title != old_title or (task.notes or "") != old_notes
-        if text_changed:
-            enqueue_task_embedding(task)
+        serializer.save()
+        task = serializer.instance
+        refresh_task_embedding_if_text_changed(
+            task, old_title=old_title, old_notes=old_notes
+        )
 
 
 class CategoryViewSet(viewsets.ModelViewSet):

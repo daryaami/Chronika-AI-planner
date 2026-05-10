@@ -471,7 +471,7 @@ class AssistantApiTests(APITestCase):
         first = saved_results[0]
         self.assertEqual(first.get("tool_name"), "search_entities")
 
-    @patch("assistant.services.tool_router.enqueue_task_embedding")
+    @patch("tasks.services.enqueue_task_embedding")
     @patch("assistant.services.dialog_session_store.MistralLLMClient")
     def test_create_task_enqueues_embedding_job(self, llm_cls, enqueue_embedding):
         llm = llm_cls.return_value
