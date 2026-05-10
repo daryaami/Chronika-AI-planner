@@ -84,7 +84,7 @@ const onSubmit = async () => {
   if (eventId) {
     await eventsStore.updateEventFromForm({
       ...payload,
-      event_id: eventId
+      id: Number(eventId)
     });
     return;
   }

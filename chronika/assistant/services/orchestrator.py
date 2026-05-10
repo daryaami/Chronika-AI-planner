@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 from datetime import datetime, timedelta
 from typing import Any
@@ -7,6 +8,7 @@ from typing import Any
 from assistant.prompts.orchestrator_prompts import get_prompt_template
 from assistant.prompts.tool_schemas import get_orchestrator_tool_schemas
 
+from .llm_context_sanitize import sanitize_for_llm
 from .pending_store import PendingStore
 from .datetime_context import DateTimeContext
 from .orchestration_policy import OrchestrationPolicy
@@ -59,13 +61,15 @@ class Orchestrator:
                 {
                     "role": "user",
                     "content": json.dumps(
-                        {
-                            "user_text": user_text,
-                            "pending_context": pending_context,
-                            "dialog_context": dialog_context_data,
-                            "conversation_history": conversation_history,
-                            "runtime_context": runtime_context,
-                        },
+                        sanitize_for_llm(
+                            {
+                                "user_text": user_text,
+                                "pending_context": copy.deepcopy(pending_context),
+                                "dialog_context": copy.deepcopy(dialog_context_data),
+                                "conversation_history": copy.deepcopy(conversation_history),
+                                "runtime_context": runtime_context,
+                            }
+                        ),
                         ensure_ascii=False,
                     ),
                 },
@@ -114,14 +118,16 @@ class Orchestrator:
                     {
                         "role": "user",
                         "content": json.dumps(
-                            {
-                                "user_text": user_text,
-                                "dialog_context": dialog_context_data,
-                                "conversation_history": conversation_history,
-                                "runtime_context": runtime_context,
-                                "iteration": followup_step,
-                                "previous_results": results,
-                            },
+                            sanitize_for_llm(
+                                {
+                                    "user_text": user_text,
+                                    "dialog_context": copy.deepcopy(dialog_context_data),
+                                    "conversation_history": copy.deepcopy(conversation_history),
+                                    "runtime_context": runtime_context,
+                                    "iteration": followup_step,
+                                    "previous_results": copy.deepcopy(results),
+                                }
+                            ),
                             ensure_ascii=False,
                         ),
                     },
@@ -147,15 +153,21 @@ class Orchestrator:
         fsm_trace.append(fsm_state)
         fallback = self._fallback_reply(status, created_pending)
         pending_action_dict = created_pending.to_dict() if created_pending else None
-        llm_results = self.time_parser.normalize_action(results, user_tz=user_tz)
-        llm_pending_action = self.time_parser.normalize_action(pending_action_dict, user_tz=user_tz)
-        llm_conversation_context = self.time_parser.normalize_action(
-            {
-                "last_entity": dialog_context_data.get("last_entity"),
-                "previous_user_text": dialog_context_data.get("previous_user_text"),
-                "last_user_text": dialog_context_data.get("last_user_text"),
-            },
-            user_tz=user_tz,
+        llm_results = sanitize_for_llm(
+            self.time_parser.normalize_action(copy.deepcopy(results), user_tz=user_tz)
+        )
+        llm_pending_action = sanitize_for_llm(
+            self.time_parser.normalize_action(copy.deepcopy(pending_action_dict), user_tz=user_tz)
+        )
+        llm_conversation_context = sanitize_for_llm(
+            self.time_parser.normalize_action(
+                {
+                    "last_entity": dialog_context_data.get("last_entity"),
+                    "previous_user_text": dialog_context_data.get("previous_user_text"),
+                    "last_user_text": dialog_context_data.get("last_user_text"),
+                },
+                user_tz=user_tz,
+            )
         )
         llm_results_local_time = self._local_time_view(llm_results)
         llm_pending_action_local_time = self._local_time_view(llm_pending_action)
@@ -163,25 +175,27 @@ class Orchestrator:
         user_message = self.llm.chat_text(
             system_prompt=self.user_reply_prompt.content,
             user_prompt=json.dumps(
-                {
-                    "user_text": user_text,
-                    "conversation_history": conversation_history,
-                    "status": status,
-                    "results": llm_results,
-                    "results_local_time": llm_results_local_time,
-                    "pending_action": llm_pending_action,
-                    "pending_action_local_time": llm_pending_action_local_time,
-                    "planner_handoff_message": self._planner_handoff_message(planner_messages),
-                    "orchestration_summary": self._build_orchestration_summary(
-                        status=status,
-                        results=llm_results,
-                        pending_action=llm_pending_action,
-                        fsm_trace=fsm_trace,
-                    ),
-                    "conversation_context": llm_conversation_context,
-                    "conversation_context_local_time": llm_conversation_context_local_time,
-                    "runtime_context": runtime_context,
-                },
+                sanitize_for_llm(
+                    {
+                        "user_text": user_text,
+                        "conversation_history": copy.deepcopy(conversation_history),
+                        "status": status,
+                        "results": llm_results,
+                        "results_local_time": llm_results_local_time,
+                        "pending_action": llm_pending_action,
+                        "pending_action_local_time": llm_pending_action_local_time,
+                        "planner_handoff_message": self._planner_handoff_message(planner_messages),
+                        "orchestration_summary": self._build_orchestration_summary(
+                            status=status,
+                            results=llm_results,
+                            pending_action=llm_pending_action,
+                            fsm_trace=fsm_trace,
+                        ),
+                        "conversation_context": llm_conversation_context,
+                        "conversation_context_local_time": llm_conversation_context_local_time,
+                        "runtime_context": runtime_context,
+                    }
+                ),
                 ensure_ascii=False,
             ),
             fallback=fallback,

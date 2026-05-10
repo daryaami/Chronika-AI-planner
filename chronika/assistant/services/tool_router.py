@@ -429,7 +429,7 @@ class ToolRouter:
         if isinstance(value, str) and not value.strip():
             return Priority.NONE
         val = str(value).strip().upper()
-        return val if val in Priority.values else Priority.MEDIUM
+        return val if val in Priority.values else Priority.NONE
 
     @staticmethod
     def _validated_task_id(raw_task_id: Any) -> int | None:
