@@ -286,11 +286,70 @@ export const useEventsStore = defineStore('events', () => {
     }
   }
 
+  const updateEventFromForm = async (data: {
+    event_id: string
+    summary: string
+    user_calendar_id: number
+    description?: string
+    start: { dateTime: string }
+    end: { dateTime: string }
+  }) => {
+    const loadingToastId = toastStore.addToast('Обновляем событие... ⏳', 0)
+
+    try {
+      const fetchFn = () =>
+        fetch(`${BASE_API_URL}/events/`, {
+          method: 'PUT',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `JWT ${authStore.getAccessToken()}`
+          },
+          body: JSON.stringify(data)
+        })
+
+      const response = await authStore.ensureAuthorizedRequest(fetchFn)
+
+      toastStore.removeToast(loadingToastId)
+
+      if (response.ok) {
+        const responseData = await response.json().catch(() => null)
+
+        if (responseData) {
+          events.value = events.value.map(event =>
+            event.id === data.event_id ? adaptEventToFullCalendar(responseData) : event
+          )
+        } else {
+          events.value = events.value.map(event => {
+            if (event.id !== data.event_id) return event
+
+            return {
+              ...event,
+              title: data.summary,
+              start: data.start.dateTime,
+              end: data.end.dateTime
+            }
+          })
+        }
+
+        toastStore.addToast('Event updated successfully! ✅', 3000)
+        return responseData
+      }
+
+      toastStore.addToast('Failed to update event 😞', 4000)
+    } catch (error) {
+      toastStore.removeToast(loadingToastId)
+      toastStore.addToast('Failed to update event 😞', 4000)
+      console.error('Update event error:', error)
+    }
+  }
+
   return {
     events,
     getEvents,
     createEvent,
     createEventFromForm,
+    updateEventFromForm,
     updateEvent,
     deleteEvent
   }

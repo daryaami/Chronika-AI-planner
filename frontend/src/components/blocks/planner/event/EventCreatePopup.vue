@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, nextTick } from 'vue';
+import { ref, nextTick, computed } from 'vue';
 import IconBtn from "@/components/ui-kit/btns/IconBtn.vue";
 import TextTitleInput from "@/components/ui-kit/inputs/text/TextTitleInput.vue";
 import EventCalendarSelect from "@/components/blocks/planner/event/EventCalendarSelect.vue";
@@ -7,6 +7,7 @@ import EventTimeSelect from "@/components/blocks/planner/event/EventTimeSelect.v
 import TextField from "@/components/ui-kit/inputs/text/TextField.vue";
 import ActionBtn from "@/components/ui-kit/btns/ActionBtn.vue";
 import { useEventsStore } from "@/store/events";
+import type { EventInput } from "@fullcalendar/core";
 
 const dialog = ref<HTMLDialogElement | null>(null);
 
@@ -15,21 +16,46 @@ const description = ref('');
 const startDate = ref<Date | null>(null);
 const endDate = ref<Date | null>(null);
 const userCalendarId = ref<number>();
+const editingEventId = ref<string | null>(null);
 
 const eventsStore = useEventsStore();
 
-const open = async (date: Date) => {
+const isEditMode = computed(() => Boolean(editingEventId.value));
+
+const toDate = (value: Date | string | null | undefined): Date | null => {
+  if (!value) return null;
+
+  const parsed = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const open = async (date: Date, event?: EventInput) => {
   dialog.value?.showModal();
 
-  startDate.value = date;
-  endDate.value = new Date(date.getTime() + 3600000);
-  title.value = '';
-  description.value = '';
+  if (event?.id) {
+    const googleEvent = event.extendedProps?.googleEvent;
+    const eventStartDate = toDate(event.start as Date | string);
+    const eventEndDate = toDate(event.end as Date | string);
+
+    editingEventId.value = String(event.id);
+    startDate.value = eventStartDate || date;
+    endDate.value = eventEndDate || new Date((eventStartDate || date).getTime() + 3600000);
+    title.value = event.title || '';
+    description.value = googleEvent?.description || '';
+    userCalendarId.value = googleEvent?.user_calendar_id || event.extendedProps?.user_calendar_id;
+  } else {
+    editingEventId.value = null;
+    startDate.value = date;
+    endDate.value = new Date(date.getTime() + 3600000);
+    title.value = '';
+    description.value = '';
+  }
 
   await nextTick();
 };
 
 const close = () => {
+  editingEventId.value = null;
   dialog.value?.close();
 };
 
@@ -51,9 +77,29 @@ const onSubmit = async () => {
     }
   };
 
+  const eventId = editingEventId.value;
+
   close();
 
+  if (eventId) {
+    await eventsStore.updateEventFromForm({
+      ...payload,
+      event_id: eventId
+    });
+    return;
+  }
+
   await eventsStore.createEventFromForm(payload);
+};
+
+const deleteCurrentEvent = async () => {
+  if (!editingEventId.value || !userCalendarId.value) return;
+
+  const eventId = editingEventId.value;
+  const calendarId = userCalendarId.value;
+
+  close();
+  await eventsStore.deleteEvent(eventId, calendarId);
 };
 
 defineExpose({ open, close });
@@ -67,6 +113,8 @@ defineExpose({ open, close });
         <IconBtn icon="delete"
                  size="s"
                  variant="secondary"
+                 v-if="isEditMode"
+                 @click="deleteCurrentEvent"
                  type="button"
         />
         <IconBtn icon="cross"
@@ -96,7 +144,7 @@ defineExpose({ open, close });
 
       <div class="event-create-popup__footer">
         <ActionBtn text="Отменить" variant="secondary" @click="close" />
-        <ActionBtn text="Создать" variant="primary" type="submit" />
+        <ActionBtn :text="isEditMode ? 'Сохранить' : 'Создать'" variant="primary" type="submit" />
       </div>
     </form>
   </dialog>

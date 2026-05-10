@@ -143,6 +143,73 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  const selectEntity = async (messageId: string, contextIds: string[]) => {
+    const fetchFn = () =>
+      fetch(`${BASE_API_URL}/assistant/action/`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Authorization': `JWT ${authStore.getAccessToken()}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          message_id: messageId,
+          action: {
+            type: 'select_entity',
+            payload: {
+              context_ids: contextIds
+            }
+          }
+        })
+      })
+
+    isFetching.value = true;
+
+    const response = await authStore.ensureAuthorizedRequest(fetchFn)
+
+    isFetching.value = false;
+    if (response.ok) {
+      const responseData = await response.json() as ChatMessageType
+      messages.value.push(responseData)
+    } else {
+      toastStore.addToast('Произошла ошибка при выборе события😔 Попробуйте ещё раз', 3000)
+    }
+  }
+
+  const selectTimeSlot = async (messageId: string, contextId: string, slot: { start: string, end: string }) => {
+    const fetchFn = () =>
+      fetch(`${BASE_API_URL}/assistant/action/`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Authorization': `JWT ${authStore.getAccessToken()}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          message_id: messageId,
+          action: {
+            type: 'select_time_slot',
+            payload: {
+              context_id: contextId,
+              slot
+            }
+          }
+        })
+      })
+
+    isFetching.value = true;
+
+    const response = await authStore.ensureAuthorizedRequest(fetchFn)
+
+    isFetching.value = false;
+    if (response.ok) {
+      const responseData = await response.json() as ChatMessageType
+      messages.value.push(responseData)
+    } else {
+      toastStore.addToast('Произошла ошибка при выборе времени😔 Попробуйте ещё раз', 3000)
+    }
+  }
+
   const clearHistory = async () => {
     const fetchFn = () =>
       fetch(`${BASE_API_URL}/assistant/clear/`, {
@@ -170,6 +237,8 @@ export const useChatStore = defineStore('chat', () => {
     fetchHistory,
     confirmMessage,
     updateEntity,
+    selectEntity,
+    selectTimeSlot,
     clearHistory,
   }
 })

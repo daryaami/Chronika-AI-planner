@@ -1,2 +1,2 @@
 .\run-local.ps1 -SkipMigrate
-.\run-local.ps1 -SkipMigrate -StartCeleryWorker
+.\run-local.ps1 -SkipMigrate -StartCeleryWorker 

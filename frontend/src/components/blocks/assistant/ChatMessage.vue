@@ -10,6 +10,9 @@ import SimpleInputIconTime from "@/components/ui-kit/inputs/time/SimpleInputIcon
 import SimpleInputIconSelect from "@/components/ui-kit/selects/SimpleInputIconSelect.vue";
 import {useCalendarsStore} from "@/store/calendars";
 import {Calendar} from "@/types/calendar";
+import EventSelectBlock from "@/components/blocks/assistant/EventSelectBlock.vue";
+import TimeSlotSelectBlock from "@/components/blocks/assistant/TimeSlotSelectBlock.vue";
+import TaskEntityBlock from "@/components/blocks/assistant/TaskEntityBlock.vue";
 
 const props = defineProps<{
   message: ChatMessageType
@@ -23,6 +26,16 @@ const getTextForEvent = (fields: any) => {
 
 const confirmMessage = () => {
   chatStore.confirmMessage(props.message.message_id)
+}
+
+const selectEntity = (contextId?: string) => {
+  if (!contextId) return
+  chatStore.selectEntity(props.message.message_id, [contextId])
+}
+
+const selectTimeSlot = (contextId?: string, slot?: { start: string, end: string }) => {
+  if (!contextId || !slot) return
+  chatStore.selectTimeSlot(props.message.message_id, contextId, slot)
 }
 
 // Edit mode
@@ -116,38 +129,66 @@ const calendarOptions = computed(() => {
   <div class="chat-message"
        :class="`chat-message--${message.role}`"
   >
-    <div
-         v-if="message.blocks?.length && !editMode"
-         v-for="(b, i) in message.blocks"
-         :key="i">
-      <span class="chat-message__block"
-            v-if="b.type === 'text'">{{ b.text }}</span>
+    <template v-if="message.blocks?.length && !editMode">
+      <div
+           class="chat-message__block-row"
+           :class="{'chat-message__block-row--text': b.type === 'text'}"
+           v-for="(b, i) in message.blocks"
+           :key="i">
+        <span class="chat-message__text-block"
+              v-if="b.type === 'text'">{{ b.text }}</span>
 
-      <div class="chat-message__block"
-           v-if="b.type === 'entity' && b.entity_type === 'event'"
-      >
-        <span v-html="getTextForEvent(b.fields)"></span>
+        <div class="chat-message__entity-block"
+             v-if="b.type === 'entity' && b.entity_type === 'event'"
+        >
+          <span v-html="getTextForEvent(b.fields)"></span>
 
-        <div class="chat-message__buttons"
-             v-if="b.mode === 'editable'">
-          <ActionBtn text="Да"
-                     variant="secondary"
-                     type="button"
-                     @click="confirmMessage"
-          />
+          <div class="chat-message__buttons"
+               v-if="b.mode === 'editable'">
+            <ActionBtn text="Да"
+                       variant="secondary"
+                       type="button"
+                       @click="confirmMessage"
+            />
 
-          <ActionBtn text="Изменить"
-                     variant="secondary"
-                     type="button"
-                     @click="enterEditMode(b)"
+            <ActionBtn text="Изменить"
+                       variant="secondary"
+                       type="button"
+                       @click="enterEditMode(b)"
+            />
+          </div>
+        </div>
+
+        <TaskEntityBlock
+          v-if="b.type === 'entity' && b.entity_type === 'task'"
+          :fields="b.fields"
+        />
+
+        <div class="chat-message__entity-selection"
+             v-if="b.type === 'entity_selection' && b.entities?.length">
+          <div class="chat-message__entity-selection-title">Выберите событие, которое хотите перенести:</div>
+
+          <EventSelectBlock
+            v-for="(entity, entityIndex) in b.entities"
+            :key="entity.context_id ?? entity.id ?? entityIndex"
+            :title="entity.title"
+            :start="entity.start"
+            :end="entity.end"
+            :number="entityIndex + 1"
+            @select="selectEntity(entity.context_id)"
           />
         </div>
+
+        <TimeSlotSelectBlock
+          v-if="b.type === 'time_slot_selection' && b.context_id && b.slots?.length"
+          :slots="b.slots"
+          @select="selectTimeSlot(b.context_id, $event)"
+        />
       </div>
+    </template>
 
-    </div>
-
-    <div v-if="!message.blocks?.length && !editMode">
-      <span>{{ message.content }}</span>
+    <div class="chat-message__block-row chat-message__block-row--text" v-if="!message.blocks?.length && !editMode">
+      <span class="chat-message__text-block">{{ message.content }}</span>
     </div>
 
     <template v-if="editMode === 'event'">
@@ -187,7 +228,7 @@ const calendarOptions = computed(() => {
 .chat-message {
   border-radius: 20px;
   padding: 6px 12px;
-  max-width: 274px;
+  width: 100%;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -222,9 +263,48 @@ const calendarOptions = computed(() => {
     width: 60px
   }
 
+  &__block-row {
+    width: 100%;
+  }
+
+  &__block-row--text {
+    width: fit-content;
+    max-width: 274px;
+  }
+
+  &__text-block {
+    display: inline-block;
+    width: fit-content;
+    max-width: 274px;
+    overflow-wrap: anywhere;
+  }
+
+  &__entity-block {
+    width: 100%;
+  }
+
+  &__entity-selection {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+  }
+
+  &__entity-selection-title {
+    color: var(--text-primary-muted);
+    font: var(--bold-14);
+  }
+
   &--user {
     margin-left: auto;
     background: var(--robot-gray);
+    width: fit-content;
+    max-width: 274px;
+
+    & .chat-message__block-row {
+      width: fit-content;
+      max-width: 100%;
+    }
   }
 }
 </style>

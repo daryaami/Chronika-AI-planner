@@ -13,7 +13,6 @@ import LoaderVue from '../components/blocks/loaders/Loader.vue';
 import {useEventsStore} from "@/store/events";
 import {getEndOfMonth, getStartOfMonth} from "@/components/js/time-utils";
 import AsideTasksList from "@/components/blocks/tasks/AsideTasksList.vue";
-import EventPopup from "@/components/blocks/planner/event/EventPopup.vue";
 import EventCreatePopup from "@/components/blocks/planner/event/EventCreatePopup.vue";
 import AssistantWindow from "@/components/blocks/assistant/AssistantWindow.vue";
 
@@ -26,7 +25,6 @@ const eventsStore = useEventsStore()
 
 const currentDate = ref<Date | null>(null)
 
-const selectedEvent = ref<EventInput | null>(null)
 const createPopupRef = ref<InstanceType<typeof EventCreatePopup> | null>(null)
 
 const updateEventTimeFromCalendar = (info: EventDragStopArg) => {
@@ -45,7 +43,8 @@ const updateEventTimeFromCalendar = (info: EventDragStopArg) => {
 }
 
 const eventClickHandler = (info: EventClickArg) => {
-  selectedEvent.value = info.event as EventInput
+  const fallbackDate = info.event.start || new Date()
+  createPopupRef.value?.open(fallbackDate, info.event as unknown as EventInput)
 }
 
 const syncCalendarEvents = (newEvents: EventInput[]) => {
@@ -169,11 +168,6 @@ watch(
 
       <div class="planner__calendar-wrapper">
         <FullCalendar :options="calendarOptions" ref="calendarInstance"/>
-        <EventPopup v-if="selectedEvent"
-                    :event="selectedEvent"
-                    @close="selectedEvent = null"
-                    @delete="selectedEvent?.remove(); selectedEvent = null"
-        />
         <EventCreatePopup ref="createPopupRef" />
       </div>
   </div>
