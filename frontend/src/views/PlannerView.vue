@@ -15,6 +15,7 @@ import {getEndOfMonth, getStartOfMonth} from "@/components/js/time-utils";
 import AsideTasksList from "@/components/blocks/tasks/AsideTasksList.vue";
 import EventCreatePopup from "@/components/blocks/planner/event/EventCreatePopup.vue";
 import AssistantWindow from "@/components/blocks/assistant/AssistantWindow.vue";
+import { useRoute, useRouter } from "vue-router";
 
 const isLoading = ref<boolean>(true);
 
@@ -22,8 +23,11 @@ const calendarInstance = ref<InstanceType<typeof FullCalendar> | null>(null);
 const calendarApi = ref<Calendar | null>(null);
 
 const eventsStore = useEventsStore()
+const route = useRoute()
+const router = useRouter()
 
 const currentDate = ref<Date | null>(null)
+const lastAppliedRouteDate = ref<string | null>(null)
 
 const createPopupRef = ref<InstanceType<typeof EventCreatePopup> | null>(null)
 
@@ -78,6 +82,65 @@ const openCreatePopup = (info: any) => {
   createPopupRef.value?.open(info.date)
 }
 
+const parseDateQuery = (value: unknown): Date | null => {
+  if (typeof value !== 'string') return null
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (!match) return null
+
+  const [, yearRaw, monthRaw, dayRaw] = match
+  const year = Number(yearRaw)
+  const month = Number(monthRaw)
+  const day = Number(dayRaw)
+  const date = new Date(year, month - 1, day)
+
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null
+  }
+
+  return date
+}
+
+const toDateQuery = (date: Date): string => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+const syncRouteDateFromCalendar = async (date: Date) => {
+  const nextDate = toDateQuery(date)
+  const currentRouteDate = typeof route.query.date === 'string' ? route.query.date : null
+
+  if (currentRouteDate === nextDate) return
+
+  await router.replace({
+    query: {
+      ...route.query,
+      date: nextDate
+    }
+  })
+}
+
+const applyRouteDate = () => {
+  const rawQueryDate = route.query.date
+  const queryDate = typeof rawQueryDate === 'string' ? rawQueryDate : null
+  if (!queryDate) return
+
+  const parsedDate = parseDateQuery(queryDate)
+
+  if (!calendarApi.value || !parsedDate || queryDate === lastAppliedRouteDate.value) {
+    return
+  }
+
+  calendarApi.value.gotoDate(parsedDate)
+  currentDate.value = calendarApi.value.getDate()
+  lastAppliedRouteDate.value = queryDate
+}
+
 const calendarOptions: CalendarOptions = {
   plugins: [timeGridPlugin, interactionPlugin],
   headerToolbar: false,
@@ -106,6 +169,7 @@ const calendarOptions: CalendarOptions = {
   eventResizableFromStart: true,
   datesSet: async (dateInfo) => {
     currentDate.value = dateInfo.start
+    await syncRouteDateFromCalendar(dateInfo.start)
     isLoading.value = true
 
     const nextMonth = new Date(currentDate.value)
@@ -138,6 +202,7 @@ onMounted(async () => {
 
   calendarApi.value = calendarInstance.value.getApi()
   currentDate.value = calendarApi.value.getDate()
+  applyRouteDate()
 
   if (eventsStore.events.length && calendarApi.value.getEvents().length === 0) {
     syncCalendarEvents(eventsStore.events)
@@ -150,6 +215,14 @@ watch(
     syncCalendarEvents(newEvents)
   },
   { deep: true }
+)
+
+watch(
+  () => route.query.date,
+  () => {
+    applyRouteDate()
+  },
+  { immediate: true }
 )
 </script>
 

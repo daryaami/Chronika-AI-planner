@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import IconBtn from "@/components/ui-kit/btns/IconBtn.vue";
 import {getCurrentWeekMonday, getTomorrow} from "@/components/js/time-utils";
+import { useRoute, useRouter } from "vue-router";
 
 const props = defineProps({
   initialDate: {
@@ -13,6 +14,46 @@ const props = defineProps({
 const weekDays = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
 const currentCalendarDate = ref(props.initialDate)
+const selectedDate = ref(new Date(props.initialDate))
+const route = useRoute()
+const router = useRouter()
+
+const toDateQuery = (date: Date): string => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+const fromDateQuery = (value: unknown): Date | null => {
+  if (typeof value !== 'string') return null
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (!match) return null
+
+  const [, yearRaw, monthRaw, dayRaw] = match
+  const year = Number(yearRaw)
+  const month = Number(monthRaw)
+  const day = Number(dayRaw)
+  const date = new Date(year, month - 1, day)
+
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null
+  }
+
+  return date
+}
+
+const syncSelectedDateFromRoute = () => {
+  const routeDate = fromDateQuery(route.query.date)
+  if (!routeDate) return
+
+  selectedDate.value = routeDate
+  currentCalendarDate.value = new Date(routeDate)
+}
 
 const days = computed(() => {
   const daysArr = []
@@ -46,6 +87,32 @@ const nextMonthHandler = () => {
 const prevMonthHandler = () => {
   currentCalendarDate.value = new Date(currentCalendarDate.value.setMonth(currentCalendarDate.value.getMonth() - 1))
 }
+
+const selectDay = async (day: Date) => {
+  const dayCopy = new Date(day)
+  selectedDate.value = dayCopy
+  currentCalendarDate.value = new Date(dayCopy)
+
+  const nextQuery = {
+    ...route.query,
+    date: toDateQuery(dayCopy)
+  }
+
+  if (route.path === '/planner') {
+    await router.replace({ query: nextQuery })
+    return
+  }
+
+  await router.push({ path: '/planner', query: nextQuery })
+}
+
+watch(
+  () => route.query.date,
+  () => {
+    syncSelectedDateFromRoute()
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
@@ -81,7 +148,11 @@ const prevMonthHandler = () => {
         <button class="aside-calendar__day aside-calendar__date"
           v-for="(day, i) in days"
           :key="i"
-          :class="{'today': day.toDateString() === new Date().toDateString()}"
+          @click="selectDay(day)"
+          :class="{
+            'today': day.toDateString() === new Date().toDateString(),
+            'active': day.toDateString() === selectedDate.toDateString()
+          }"
         >
             {{ day.getDate() }}
       </button>
@@ -159,6 +230,11 @@ const prevMonthHandler = () => {
     &.today {
       background: var(--bg-accent);
       color: var(--text-secondary);
+    }
+
+    &.active {
+      background: var(--bg-highlight);
+      color: var(--text-primary);
     }
   }
 
