@@ -66,7 +66,7 @@ const syncCalendarEvents = (newEvents: EventInput[]) => {
 
   // ➕ добавить или обновить
   for (const e of newEvents) {
-    if (!e.id) return
+    if (!e.id) continue
     const existing = calendarApi.value.getEventById(e.id)
 
     if (existing) {
@@ -178,10 +178,11 @@ const calendarOptions: CalendarOptions = {
     const prevMonth = new Date(currentDate.value)
     prevMonth.setMonth(prevMonth.getMonth() - 1)
 
-    await eventsStore.getEvents(
-      getStartOfMonth(prevMonth),
-      getEndOfMonth(nextMonth)
-    )
+    const rangeStart = getStartOfMonth(prevMonth)
+    const rangeEnd = getEndOfMonth(nextMonth)
+    eventsStore.setLastPlannerFetchRange(rangeStart, rangeEnd)
+
+    await eventsStore.getEvents(rangeStart, rangeEnd)
 
     isLoading.value = false
   },

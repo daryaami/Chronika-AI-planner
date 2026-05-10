@@ -128,6 +128,7 @@ watch(
     tasks.value = toUiTasks(newTasks)
     window.dispatchEvent(new Event('resize'))
   },
+  { deep: true },
 )
 
 // Draggable

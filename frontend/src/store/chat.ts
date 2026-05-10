@@ -1,9 +1,26 @@
 import {defineStore} from "pinia";
 import {ref} from "vue";
-import {ChatMessageType} from "@/types/chat";
+import {ChatMessageType, ChatMessageBlock} from "@/types/chat";
 import {useAuthStore} from "@/store/auth";
 import {BASE_API_URL} from "@/config";
 import {useToastStore} from "@/store/toast";
+import {applyAssistantMutationResults} from "@/utils/assistantMutations";
+
+function normalizeAssistantResponse(data: Record<string, unknown>): ChatMessageType {
+  const blocks = Array.isArray(data.blocks) ? data.blocks as ChatMessageBlock[] : undefined
+  const textBlock = blocks?.find((b) => b.type === 'text')
+  const content =
+    typeof data.content === 'string' ? data.content : (textBlock?.text ?? '')
+  return {
+    message_id: String(data.message_id ?? ''),
+    role: data.role === 'user' || data.role === 'assistant' ? data.role : 'assistant',
+    content,
+    created_at: data.created_at as Date | undefined,
+    blocks,
+    state: typeof data.state === 'string' ? data.state : undefined,
+    result: Array.isArray(data.result) ? data.result as ChatMessageType['result'] : undefined,
+  }
+}
 
 export const useChatStore = defineStore('chat', () => {
   const authStore = useAuthStore()
@@ -47,13 +64,18 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   const sendMessage = async (text: string) => {
+    const lastAssistantMsg = [...messages.value].reverse().find(
+      (m) => m.role === 'assistant' && m.message_id && m.message_id !== 'message_id'
+    )
+
     const userMessage = createUserMessage(text)
 
     messages.value.push(userMessage)
     isFetching.value = true;
 
-    const payload = {
-      message: text
+    const payload: Record<string, unknown> = {message: text}
+    if (lastAssistantMsg) {
+      payload.client_context = {message_id: lastAssistantMsg.message_id}
     }
 
     const fetchFn = () =>
@@ -72,8 +94,9 @@ export const useChatStore = defineStore('chat', () => {
     isFetching.value = false;
 
     if (response.ok) {
-      const responseData = await response.json() as ChatMessageType
+      const responseData = normalizeAssistantResponse(await response.json() as Record<string, unknown>)
       messages.value.push(responseData)
+      applyAssistantMutationResults(responseData.result)
     } else {
       toastStore.addToast('Произошла ошибка при обработке сообщения😔 Попробуйте ещё раз', 3000)
     }
@@ -102,8 +125,9 @@ export const useChatStore = defineStore('chat', () => {
 
     isFetching.value = false;
     if (response.ok) {
-      const responseData = await response.json() as ChatMessageType
+      const responseData = normalizeAssistantResponse(await response.json() as Record<string, unknown>)
       messages.value.push(responseData)
+      applyAssistantMutationResults(responseData.result)
     } else {
       toastStore.addToast('Произошла ошибка при обработке сообщения😔 Попробуйте ещё раз', 3000)
     }
@@ -136,8 +160,9 @@ export const useChatStore = defineStore('chat', () => {
 
     isFetching.value = false;
     if (response.ok) {
-      const responseData = await response.json() as ChatMessageType
+      const responseData = normalizeAssistantResponse(await response.json() as Record<string, unknown>)
       messages.value.push(responseData)
+      applyAssistantMutationResults(responseData.result)
     } else {
       toastStore.addToast('Произошла ошибка при обновлении события😔 Попробуйте ещё раз', 3000)
     }
@@ -169,8 +194,9 @@ export const useChatStore = defineStore('chat', () => {
 
     isFetching.value = false;
     if (response.ok) {
-      const responseData = await response.json() as ChatMessageType
+      const responseData = normalizeAssistantResponse(await response.json() as Record<string, unknown>)
       messages.value.push(responseData)
+      applyAssistantMutationResults(responseData.result)
     } else {
       toastStore.addToast('Произошла ошибка при выборе события😔 Попробуйте ещё раз', 3000)
     }
@@ -203,8 +229,9 @@ export const useChatStore = defineStore('chat', () => {
 
     isFetching.value = false;
     if (response.ok) {
-      const responseData = await response.json() as ChatMessageType
+      const responseData = normalizeAssistantResponse(await response.json() as Record<string, unknown>)
       messages.value.push(responseData)
+      applyAssistantMutationResults(responseData.result)
     } else {
       toastStore.addToast('Произошла ошибка при выборе времени😔 Попробуйте ещё раз', 3000)
     }

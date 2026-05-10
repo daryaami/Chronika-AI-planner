@@ -123,6 +123,10 @@ const calendarOptions = computed(() => {
     color: calendar.background_color
   }))
 })
+
+const showEntityActions = (block: { mode?: string }) => {
+  return block.mode === 'editable' || props.message.state === 'waiting_confirmation'
+}
 </script>
 
 <template>
@@ -144,7 +148,7 @@ const calendarOptions = computed(() => {
           <span v-html="getTextForEvent(b.fields)"></span>
 
           <div class="chat-message__buttons"
-               v-if="b.mode === 'editable'">
+               v-if="showEntityActions(b)">
             <ActionBtn text="Да"
                        variant="secondary"
                        type="button"
@@ -159,10 +163,19 @@ const calendarOptions = computed(() => {
           </div>
         </div>
 
-        <TaskEntityBlock
-          v-if="b.type === 'entity' && b.entity_type === 'task'"
-          :fields="b.fields"
-        />
+        <div class="chat-message__entity-block"
+             v-if="b.type === 'entity' && b.entity_type === 'task'">
+          <TaskEntityBlock :fields="b.fields" />
+
+          <div class="chat-message__buttons"
+               v-if="showEntityActions(b)">
+            <ActionBtn text="Да"
+                       variant="secondary"
+                       type="button"
+                       @click="confirmMessage"
+            />
+          </div>
+        </div>
 
         <div class="chat-message__entity-selection"
              v-if="b.type === 'entity_selection' && b.entities?.length">

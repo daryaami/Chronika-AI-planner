@@ -7,9 +7,42 @@ import { ref } from 'vue'
 import type { EventInput } from '@fullcalendar/core'
 import {useTasksStore} from "@/store/tasks";
 
+/** Стабильный ключ строки API (без изменения бэка): склейка при смене id после появления google_event_id */
+function buildEventMergeKey(raw: Record<string, unknown>): string {
+  const start = (raw.start as { dateTime?: string } | undefined)?.dateTime ?? ''
+  const end = (raw.end as { dateTime?: string } | undefined)?.dateTime ?? ''
+  const summary = String(raw.summary ?? '')
+  const cal = raw.user_calendar_id != null ? String(raw.user_calendar_id) : ''
+  const created = String(raw.created ?? '')
+  return `${start}\x1e${end}\x1e${summary}\x1e${cal}\x1e${created}`
+}
+
+function hashStringToBase36(input: string): string {
+  let hash = 2166136261
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i)
+    hash = Math.imul(hash, 16777619) >>> 0
+  }
+  return hash.toString(36)
+}
+
+function findEventMergeIndex(list: EventInput[], adapted: EventInput): number {
+  const key = (adapted.extendedProps as { event_merge_key?: string } | undefined)?.event_merge_key
+  let i = list.findIndex((e) => e.id === adapted.id)
+  if (i !== -1) return i
+  if (key) {
+    i = list.findIndex(
+      (e) => (e.extendedProps as { event_merge_key?: string } | undefined)?.event_merge_key === key,
+    )
+  }
+  return i
+}
+
 export const useEventsStore = defineStore('events', () => {
   const events = ref([] as Array<EventInput>)
   let fetchedKeys = [] as Array<string>
+  /** Диапазон последней загрузки с планировщика — для точечного refetch после ассистента */
+  let lastPlannerFetchRange: { start: Date; end: Date } | null = null
   const isSyncing = ref(false)
 
   const authStore = useAuthStore()
@@ -17,17 +50,23 @@ export const useEventsStore = defineStore('events', () => {
   const toastStore = useToastStore()
 
   const adaptEventToFullCalendar = (event: any): EventInput => {
+    const raw = event as Record<string, unknown>
+    const mergeKey = buildEventMergeKey(raw)
+    const googleId = raw.id != null && raw.id !== '' ? String(raw.id) : ''
+    const id = googleId || `local:${hashStringToBase36(mergeKey)}`
+
     return {
-      id: event.id,
-      title: event.summary || "No title",
-      start: event.start.dateTime,
-      end: event.end?.dateTime,
+      id,
+      title: (event.summary as string) || 'No title',
+      start: (event.start as { dateTime?: string } | undefined)?.dateTime,
+      end: (event.end as { dateTime?: string } | undefined)?.dateTime,
       backgroundColor: event.color,
       borderColor: event.color,
       googleEvent: event,
       extendedProps: {
-        user_calendar_id: event.user_calendar_id
-      }
+        user_calendar_id: event.user_calendar_id,
+        event_merge_key: mergeKey,
+      },
     }
   }
 
@@ -90,12 +129,12 @@ export const useEventsStore = defineStore('events', () => {
         const data = await response.json()
 
         for (const event of data) {
-          const index = events.value.findIndex(e => e.id === event.id)
-
+          const adapted = adaptEventToFullCalendar(event)
+          const index = findEventMergeIndex(events.value, adapted)
           if (index !== -1) {
-            events.value[index] = adaptEventToFullCalendar(event)
+            events.value.splice(index, 1, adapted)
           } else {
-            events.value.push(adaptEventToFullCalendar(event))
+            events.value.push(adapted)
           }
         }
       }
@@ -108,7 +147,13 @@ export const useEventsStore = defineStore('events', () => {
     }
   }
 
-  const getEvents = async (startDate: Date, endDate: Date) => {
+  type GetEventsOptions = { skipGoogleSync?: boolean }
+
+  const getEvents = async (
+    startDate: Date,
+    endDate: Date,
+    opts: GetEventsOptions = {},
+  ) => {
     // Определяем какие месяцы нужно загрузить ДО запроса
 
     const monthsToFetch = getMonthStartDates(startDate, endDate)
@@ -118,16 +163,64 @@ export const useEventsStore = defineStore('events', () => {
     const data: EventInput[] = await result.json()
 
     for (const event of data) {
-      const alreadyExists = events.value.some(e => e.id === event.id)
-      if (!alreadyExists) {
-        events.value.push(adaptEventToFullCalendar(event))
+      const adapted = adaptEventToFullCalendar(event)
+      const index = findEventMergeIndex(events.value, adapted)
+      if (index !== -1) {
+        events.value.splice(index, 1, adapted)
+      } else {
+        events.value.push(adapted)
       }
     }
 
-    // Синхронизируем с Google после загрузки новых месяцев
-    syncWithGoogle(startDate, endDate, monthsToFetch).then()
+    // После refetch только из БД (например ассистент) не дергаем Google — тост раздражает и лишний трафик
+    if (!opts.skipGoogleSync) {
+      syncWithGoogle(startDate, endDate, monthsToFetch).then()
+    }
 
     return events.value
+  }
+
+  const setLastPlannerFetchRange = (startDate: Date, endDate: Date) => {
+    lastPlannerFetchRange = {
+      start: new Date(startDate),
+      end: new Date(endDate),
+    }
+  }
+
+  /**
+   * Подтянуть события с GET без сброса fetchedKeys и без POST /events/sync/.
+   * Сброс кэша месяцев гонялся с concurrent datesSet и снова вызывал синхронизацию с Google.
+   */
+  const refreshEventsFromLastPlannerRange = async () => {
+    if (!lastPlannerFetchRange) return
+    const { start, end } = lastPlannerFetchRange
+
+    const fetchFn = () =>
+      fetch(
+        `${BASE_API_URL}/events/?start=${formatDate(start)}&end=${formatDate(end)}`,
+        {
+          method: 'GET',
+          credentials: 'include',
+          headers: {
+            Authorization: `JWT ${authStore.getAccessToken()}`,
+          },
+        },
+      )
+
+    const response = await authStore.ensureAuthorizedRequest(fetchFn)
+    if (!response.ok) return
+
+    const data: unknown[] = await response.json()
+    for (const raw of data) {
+      const event = raw as Record<string, unknown>
+      const adapted = adaptEventToFullCalendar(event)
+      const index = findEventMergeIndex(events.value, adapted)
+      if (index !== -1) {
+        events.value.splice(index, 1, adapted)
+      } else {
+        events.value.push(adapted)
+      }
+    }
   }
 
   const createEvent = async (info: any) => {
@@ -347,6 +440,8 @@ export const useEventsStore = defineStore('events', () => {
   return {
     events,
     getEvents,
+    setLastPlannerFetchRange,
+    refreshEventsFromLastPlannerRange,
     createEvent,
     createEventFromForm,
     updateEventFromForm,
