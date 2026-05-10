@@ -494,9 +494,13 @@ class AssistantApiTests(APITestCase):
         self.assertEqual(response.data["state"], "success")
         self.assertEqual(enqueue_embedding.call_count, 1)
 
-    @patch("assistant.services.tool_router.transaction.on_commit")
+    @patch("events.services.transaction.on_commit", side_effect=lambda fn: fn())
+    @patch("events.services.sync_event_to_google.delay")
+    @patch("events.services.generate_event_embedding.delay")
     @patch("assistant.services.dialog_session_store.MistralLLMClient")
-    def test_create_event_enqueues_embedding_job(self, llm_cls, on_commit_mock):
+    def test_create_event_enqueues_embedding_and_google_sync(
+        self, llm_cls, enqueue_embedding, enqueue_google_sync, _ocb
+    ):
         llm = llm_cls.return_value
         llm.chat_with_tools.return_value = {
             "content": "",
@@ -519,10 +523,14 @@ class AssistantApiTests(APITestCase):
         response = self.client.post(reverse("assistant_message"), {"message": "Создай событие на завтра в 10"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["state"], "success")
-        self.assertEqual(on_commit_mock.call_count, 1)
+        enqueue_embedding.assert_called_once()
+        enqueue_google_sync.assert_called_once()
 
+    @patch("events.services.transaction.on_commit", side_effect=lambda fn: fn())
+    @patch("events.services.sync_event_to_google.delay")
+    @patch("events.services.generate_event_embedding.delay")
     @patch("assistant.services.dialog_session_store.MistralLLMClient")
-    def test_create_event_persists_event_in_db(self, llm_cls):
+    def test_create_event_persists_event_in_db(self, llm_cls, _emb, _sync, _ocb):
         llm = llm_cls.return_value
         llm.chat_with_tools.return_value = {
             "content": "",

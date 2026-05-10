@@ -4,14 +4,12 @@ from datetime import datetime, timedelta, timezone as datetime_timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
 from assistant.integrations.semantic_search import SemanticSearchService
-from core.enums import EmbeddingStatus
 from events.models import Event, UserCalendar
-from events.tasks import generate_event_embedding
+from events.services import EventWriteService, add_event_extended_properties
 from tasks.models import Priority, Task
 from tasks.services import (
     create_task,
@@ -92,47 +90,41 @@ class ToolRouter:
         if not end:
             end = start + timedelta(minutes=int(payload.get("duration_minutes") or 60))
         task_id = self._validated_task_id(payload.get("task_id"))
-        event = Event.objects.create(
-            user_calendar=calendar,
-            summary=str(payload.get("title") or payload.get("summary") or "").strip(),
-            description=payload.get("description"),
-            start=start,
-            end=end,
-            htmlLink=payload.get("htmlLink"),
-            organizer_email=payload.get("organizer_email"),
-            task_id=task_id,
-            embedding_status=EmbeddingStatus.PENDING,
-        )
-        transaction.on_commit(lambda event_id=event.id: generate_event_embedding.delay(event_id))
-        return {"ok": True, "data": {"event": self._event_out(event)}}
+        summary = str(payload.get("title") or payload.get("summary") or "").strip()
+        event_data = {
+            "summary": summary,
+            "description": payload.get("description"),
+            "start": {"dateTime": start.isoformat()},
+            "end": {"dateTime": end.isoformat()},
+        }
+        try:
+            local_event = EventWriteService().create_calendar_event(
+                user=self.user,
+                user_calendar=calendar,
+                event_data=event_data,
+                task_id=task_id,
+                enqueue_embedding=True,
+            )
+        except Exception as exc:
+            return self._err("tool_execution_failed", str(exc), recoverable=True)
+        return {"ok": True, "data": {"event": self._event_out(local_event)}}
 
     def _tool_update_event(self, payload: dict[str, Any]) -> dict[str, Any]:
         event = self._resolve_event(payload)
         if not event:
             return self._err("event_not_found", "Event not found", recoverable=True)
         updates = dict(payload.get("updates") or {})
-        old_summary = event.summary
-        old_description = event.description
-        if "summary" in updates or "title" in updates:
-            event.summary = updates.get("summary") or updates.get("title")
-        if "description" in updates:
-            event.description = updates.get("description")
-        if "start" in updates:
-            event.start = self._parse_dt(updates.get("start"))
-        if "end" in updates:
-            event.end = self._parse_dt(updates.get("end"))
-        if "task_id" in updates:
-            event.task_id = self._validated_task_id(updates.get("task_id"))
-        if "htmlLink" in updates:
-            event.htmlLink = updates.get("htmlLink")
-        if "organizer_email" in updates:
-            event.organizer_email = updates.get("organizer_email")
-        text_fields_changed = event.summary != old_summary or event.description != old_description
-        if text_fields_changed:
-            event.embedding_status = EmbeddingStatus.PENDING
-        event.save()
-        if text_fields_changed:
-            transaction.on_commit(lambda event_id=event.id: generate_event_embedding.delay(event_id))
+        patch_data = self._event_updates_to_google_patch(updates)
+        try:
+            EventWriteService().update_calendar_event(
+                user=self.user,
+                user_calendar=event.user_calendar,
+                event=event,
+                patch_data=patch_data,
+            )
+        except Exception as exc:
+            return self._err("tool_execution_failed", str(exc), recoverable=True)
+        event.refresh_from_db()
         return {"ok": True, "data": {"event": self._event_out(event)}}
 
     def _tool_delete_event(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -140,7 +132,15 @@ class ToolRouter:
         if not event:
             return self._err("event_not_found", "Event not found", recoverable=True)
         deleted_id = event.id
-        event.delete()
+        user_calendar = event.user_calendar
+        try:
+            EventWriteService().delete_calendar_event(
+                user=self.user,
+                user_calendar=user_calendar,
+                event=event,
+            )
+        except Exception as exc:
+            return self._err("tool_execution_failed", str(exc), recoverable=True)
         return {"ok": True, "data": {"deleted_id": deleted_id}}
 
     def _tool_move_event(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -365,6 +365,26 @@ class ToolRouter:
             return get_task_for_user(self.user, int(pk))
         except (TypeError, ValueError):
             return None
+
+    def _event_updates_to_google_patch(self, updates: dict[str, Any]) -> dict[str, Any]:
+        """Поля для Google Calendar patch из словаря обновлений ассистента."""
+        patch: dict[str, Any] = {}
+        if "summary" in updates or "title" in updates:
+            patch["summary"] = (updates.get("summary") or updates.get("title") or "").strip()
+        if "description" in updates:
+            patch["description"] = updates.get("description")
+        if "start" in updates:
+            dt = self._parse_dt(updates.get("start"))
+            if dt:
+                patch["start"] = {"dateTime": dt.isoformat()}
+        if "end" in updates:
+            dt = self._parse_dt(updates.get("end"))
+            if dt:
+                patch["end"] = {"dateTime": dt.isoformat()}
+        if "task_id" in updates:
+            tid = self._validated_task_id(updates.get("task_id"))
+            add_event_extended_properties(patch, tid)
+        return patch
 
     def _resolve_event(self, payload: dict[str, Any]) -> Event | None:
         if payload.get("event_id"):

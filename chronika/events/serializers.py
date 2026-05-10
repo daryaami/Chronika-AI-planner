@@ -143,6 +143,7 @@ class EventSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "google_event_id",
+            "google_sync_status",
             "summary",
             "status",
             "htmlLink",
@@ -155,7 +156,7 @@ class EventSerializer(serializers.ModelSerializer):
             "description",
             "color",
         ]
-        read_only_fields = ["id", "google_event_id", "created", "updated"]
+        read_only_fields = ["id", "google_event_id", "google_sync_status", "created", "updated"]
 
     def get_color(self, obj):
         return obj.user_calendar.background_color if obj.user_calendar_id else None
