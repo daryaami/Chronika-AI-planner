@@ -3,7 +3,6 @@ import {Task} from "@/types/task";
 import IconBtn from "@/components/ui-kit/btns/IconBtn.vue";
 import {useTasksStore} from "@/store/tasks";
 import {ref, computed, watch, onMounted} from "vue";
-import {formatDueDate} from "@/components/js/time-utils";
 import TaskCheckbox from "@/components/blocks/form/TaskCheckbox.vue";
 import {useCategoriesStore} from "@/store/categories";
 import {Category} from "@/types/category";
@@ -13,8 +12,10 @@ const props = defineProps<{ task: Task }>()
 const dueDate = computed(() => {
   if (!props.task.due_date) return
   const date = new Date(props.task.due_date)
-
-  const dateString = formatDueDate(date)
+  const dateString = date.toLocaleDateString("ru", {
+    day: "numeric",
+    month: "long",
+  })
 
   return `Due ${dateString}`
 })
