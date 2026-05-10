@@ -261,7 +261,6 @@ const setTaskEl = (el: Element | ComponentPublicInstance | null, task: UiTask) =
     margin: 8px 0 4px;
     padding-left: 8px;
     font: var(--medium-14);
-    color: var(--text-secondary);
   }
 }
 </style>
