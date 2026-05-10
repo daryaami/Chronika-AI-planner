@@ -328,6 +328,8 @@ class Orchestrator:
 
             executed_tools.append(effective_tool)
             data = out.get("data") or {}
+            if isinstance(data, dict):
+                data = {**data, "mutation_tool": effective_tool}
             if effective_tool == "find_slots" and not list(data.get("slots") or []):
                 retried = self._retry_find_slots_with_expanded_window(effective_payload)
                 if retried is not None:
@@ -747,6 +749,8 @@ class Orchestrator:
     @staticmethod
     def _enrich_control_data(*, tool_name: str, data: Any) -> dict[str, Any]:
         payload = dict(data or {}) if isinstance(data, dict) else {}
+        if tool_name:
+            payload["mutation_tool"] = tool_name
         if tool_name == "delete_task" and payload.get("deleted_id") is not None:
             payload.setdefault("entity_type", "task")
         if tool_name == "delete_event" and payload.get("deleted_id") is not None:
@@ -778,10 +782,14 @@ class Orchestrator:
         entity_type, entity_id = context
         if entity_type == "task":
             out = self.tool_router.execute("update_task", {"task_id": entity_id, "updates": fields})
+            inner_tool = "update_task"
         else:
             out = self.tool_router.execute("update_event", {"event_id": entity_id, "updates": fields})
+            inner_tool = "update_event"
         if out.get("ok"):
-            return {"status": "executed", "data": out.get("data"), "error": None}
+            merged = dict(out.get("data") or {}) if isinstance(out.get("data"), dict) else {}
+            merged["mutation_tool"] = inner_tool
+            return {"status": "executed", "data": merged, "error": None}
         return {"status": "failed", "data": None, "error": out.get("error")}
 
     def _confirm_selected_slot(self, current) -> dict[str, Any]:

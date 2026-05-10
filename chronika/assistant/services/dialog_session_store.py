@@ -5,10 +5,15 @@ from datetime import datetime, timezone as datetime_timezone
 from typing import Any
 
 from django.db import transaction
+from django.db.models import Prefetch
 from django.utils import timezone
 
 from assistant.integrations.llm_client import MistralLLMClient
 from assistant.models import AssistantMessage, AssistantSession
+from events.models import Event
+from events.serializers import EventSerializer
+from tasks.models import Task
+from tasks.serializers import TaskSerializer
 
 from .orchestrator import Orchestrator
 from .pending_store import PendingStore
@@ -23,6 +28,79 @@ class OrchestratorApiResult:
     results: list[dict[str, Any]]
     pending_action: dict[str, Any] | None
     presentables: dict[str, Any]
+    mutation_results: list[dict[str, Any]]
+
+
+_MUTATION_TOOL_MAP: dict[str, tuple[str, str]] = {
+    "create_task": ("task", "created"),
+    "update_task": ("task", "updated"),
+    "delete_task": ("task", "deleted"),
+    "create_event": ("event", "created"),
+    "update_event": ("event", "updated"),
+    "move_event": ("event", "updated"),
+    "delete_event": ("event", "deleted"),
+}
+
+
+def _collect_entity_mutation_results(user, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for item in list(results or []):
+        if item.get("status") != "executed":
+            continue
+        data = item.get("data")
+        if not isinstance(data, dict):
+            continue
+        mt = str(data.get("mutation_tool") or item.get("tool_name") or "").strip()
+        mapped = _MUTATION_TOOL_MAP.get(mt)
+        if not mapped:
+            continue
+        entity_kind, operation = mapped
+        if operation == "deleted":
+            deleted_id = data.get("deleted_id")
+            if deleted_id is None:
+                continue
+            out.append({"type": entity_kind, "operation": operation, "entity": {"id": deleted_id}})
+            continue
+        if entity_kind == "task":
+            raw = data.get("task")
+            task_pk = raw.get("id") if isinstance(raw, dict) else None
+            if task_pk is None:
+                continue
+            task = (
+                Task.objects.filter(user=user, id=task_pk)
+                .select_related("calendar", "category")
+                .prefetch_related(
+                    Prefetch("events", queryset=Event.objects.select_related("user_calendar"))
+                )
+                .first()
+            )
+            if not task:
+                out.append({"type": "task", "operation": operation, "entity": {"id": task_pk}})
+                continue
+            out.append(
+                {
+                    "type": "task",
+                    "operation": operation,
+                    "entity": TaskSerializer(task).data,
+                }
+            )
+        else:
+            raw = data.get("event")
+            event_pk = raw.get("id") if isinstance(raw, dict) else None
+            if event_pk is None:
+                continue
+            ev = Event.objects.filter(id=event_pk, user_calendar__user=user).select_related("user_calendar").first()
+            if not ev:
+                out.append({"type": "event", "operation": operation, "entity": {"id": event_pk}})
+                continue
+            out.append(
+                {
+                    "type": "event",
+                    "operation": operation,
+                    "entity": EventSerializer(ev).data,
+                }
+            )
+    return out
 
 
 def _get_or_create_session(user) -> AssistantSession:
@@ -319,6 +397,7 @@ def run_assistant_turn_with_persisted_state(user, message: str, client_message_i
         results=out["results"],
         pending_action=out.get("pending_action"),
         presentables=_build_presentables(out["results"], out.get("pending_action")),
+        mutation_results=_collect_entity_mutation_results(user, out["results"]),
     )
     orchestrator_context = dict(out.get("dialog_context") or {})
     orchestrator_meta = dict(out.get("meta") or {})
@@ -331,6 +410,7 @@ def run_assistant_turn_with_persisted_state(user, message: str, client_message_i
             "results": api_result.results,
             "presentables": api_result.presentables,
             "pending_action": api_result.pending_action,
+            "mutation_results": api_result.mutation_results,
             "meta": orchestrator_meta,
         },
         blocks=blocks,
@@ -367,6 +447,7 @@ def run_assistant_ui_action(user, body: dict[str, Any]):
         results=out["results"],
         pending_action=out.get("pending_action"),
         presentables=_build_presentables(out["results"], out.get("pending_action")),
+        mutation_results=_collect_entity_mutation_results(user, out["results"]),
     )
     orchestrator_context = dict(out.get("dialog_context") or {})
     orchestrator_meta = dict(out.get("meta") or {})
@@ -379,6 +460,7 @@ def run_assistant_ui_action(user, body: dict[str, Any]):
             "results": api_result.results,
             "presentables": api_result.presentables,
             "pending_action": api_result.pending_action,
+            "mutation_results": api_result.mutation_results,
             "ui_action": action,
             "meta": orchestrator_meta,
         },

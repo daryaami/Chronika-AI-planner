@@ -89,6 +89,7 @@ class AssistantMessageApi(APIView):
                 "message_id": message_id,
                 "state": _public_state(orchestrator_result.state),
                 "blocks": blocks,
+                "result": orchestrator_result.mutation_results,
             }
             trace(
                 "HTTP POST /assistant/message: ответ на фронт (полное тело)",
@@ -144,6 +145,7 @@ class AssistantActionApi(APIView):
                 "message_id": message_id,
                 "state": _public_state(orchestrator_result.state),
                 "blocks": blocks,
+                "result": orchestrator_result.mutation_results,
             }
             trace(
                 "HTTP POST /assistant/action: ответ на фронт (полное тело)",
