@@ -261,7 +261,7 @@ export const useEventsStore = defineStore('events', () => {
   }
 
   const getCalendarId = (eventId: string): number | undefined => {
-    const event = events.value.find(event => event.id === eventId)
+    const event = events.value.find(event => String(event.id) === String(eventId))
     const userCalendarId = event?.googleEvent?.user_calendar_id
 
     return userCalendarId? userCalendarId : undefined
@@ -270,7 +270,7 @@ export const useEventsStore = defineStore('events', () => {
   const debounceMap = new Map<string, any>()
 
   interface eventUpdateData {
-    id: string,
+    id: string | number,
     newStart: string,
     newEnd: string,
     title?: string
@@ -278,22 +278,26 @@ export const useEventsStore = defineStore('events', () => {
 
   const updateEvent = (data: eventUpdateData) => {
     const { id, newStart, newEnd, title } = data
+    const key = String(id)
 
-    if (debounceMap.has(id)) {
-      clearTimeout(debounceMap.get(id))
+
+    if (debounceMap.has(key)) {
+      clearTimeout(debounceMap.get(key))
     }
 
     const timeout = setTimeout(async () => {
-      debounceMap.delete(id) // Удаляем по завершении
+      debounceMap.delete(key)
 
-      const calendarId = getCalendarId(id)
-
-      console.log(calendarId)
+      const calendarId = getCalendarId(key)
 
       if (!calendarId) return
 
+      const dbId = typeof id === 'number' ? id : Number(id)
+
+      if (!Number.isFinite(dbId)) return
+
       const payload = {
-        event_id: id,
+        id: dbId,
         start: {
           dateTime: newStart,
         },
@@ -302,6 +306,8 @@ export const useEventsStore = defineStore('events', () => {
         },
         user_calendar_id: calendarId
       }
+
+      console.log(payload)
 
       await fetch(`${BASE_API_URL}/events/`, {
         method: 'PUT',
@@ -314,10 +320,13 @@ export const useEventsStore = defineStore('events', () => {
       })
     }, 400)
 
-    debounceMap.set(id, timeout)
+    debounceMap.set(key, timeout)
   }
 
-  const deleteEvent = async (eventId: string, userCalendarId: number) => {
+  const deleteEvent = async (eventId: string | number, userCalendarId: number) => {
+    const dbId = typeof eventId === 'number' ? eventId : Number(eventId)
+    if (!Number.isFinite(dbId)) return
+
     const response = await fetch(`${BASE_API_URL}/events/`, {
       method: 'DELETE',
       credentials: 'include',
@@ -326,13 +335,13 @@ export const useEventsStore = defineStore('events', () => {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        event_id: eventId,
+        id: dbId,
         user_calendar_id: userCalendarId
       })
     })
 
     if (response.ok) {
-      events.value = events.value.filter(e => e.id !== eventId)
+      events.value = events.value.filter(e => String(e.id) !== String(eventId))
     }
   }
 
@@ -380,7 +389,7 @@ export const useEventsStore = defineStore('events', () => {
   }
 
   const updateEventFromForm = async (data: {
-    event_id: string
+    id: number
     summary: string
     user_calendar_id: number
     description?: string
@@ -410,11 +419,11 @@ export const useEventsStore = defineStore('events', () => {
 
         if (responseData) {
           events.value = events.value.map(event =>
-            event.id === data.event_id ? adaptEventToFullCalendar(responseData) : event
+            String(event.id) === String(data.id) ? adaptEventToFullCalendar(responseData) : event
           )
         } else {
           events.value = events.value.map(event => {
-            if (event.id !== data.event_id) return event
+            if (String(event.id) !== String(data.id)) return event
 
             return {
               ...event,

@@ -12,3 +12,4 @@ models/
 run-local.ps1
 .pytest_cache/
 .hf-cache/  
+*-protocol.md

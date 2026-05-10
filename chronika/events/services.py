@@ -15,10 +15,15 @@ import logging
 from rest_framework.exceptions import ValidationError
 
 from core.exceptions import CalendarCreationError, CalendarSyncError
-from core.enums import EmbeddingStatus
-from .tasks import generate_event_embedding
+from core.enums import EmbeddingStatus, GoogleCalendarSyncStatus
+from .tasks import (
+    delete_remote_google_calendar_event,
+    generate_event_embedding,
+    sync_event_to_google,
+)
 
 logger = logging.getLogger(__name__)
+
 
 # IANA timezone format (e.g. Europe/Moscow) — для валидации timezone из Google Calendar
 IANA_TIMEZONE_RE = re.compile(r"^[A-Za-z]+(?:[._-][A-Za-z0-9]+)*(?:/[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*)+$")
@@ -312,6 +317,7 @@ class GoogleCalendarService:
             "end": end_value,
             "htmlLink": event_data.get("htmlLink"),
             "organizer_email": organizer_email,
+            "google_sync_status": GoogleCalendarSyncStatus.SYNCED,
         }
         if text_fields_changed and enqueue_embedding:
             defaults["embedding_status"] = EmbeddingStatus.PENDING
@@ -505,6 +511,178 @@ class GoogleCalendarService:
             return False
         message = str(error)
         return "requiredAccessLevel" in message or "writer access" in message
+
+
+class EventWriteService:
+    """Локальные мутации Event сразу; выгрузка в Google Calendar — через Celery (``sync_event_to_google``)."""
+
+    def __init__(self, calendar_service: GoogleCalendarService | None = None):
+        self._gcal = calendar_service or GoogleCalendarService()
+
+    def _schedule_sync_after_commit(self, event_id: int) -> None:
+        transaction.on_commit(lambda eid=event_id: sync_event_to_google.delay(eid))
+
+    def _schedule_embedding_after_commit(self, event_id: int) -> None:
+        transaction.on_commit(lambda eid=event_id: generate_event_embedding.delay(eid))
+
+    def _schedule_remote_delete_after_commit(
+        self, *, user_id: int, google_calendar_id: str, google_event_id: str
+    ) -> None:
+        transaction.on_commit(
+            lambda: delete_remote_google_calendar_event.delay(
+                user_id, google_calendar_id, google_event_id
+            )
+        )
+
+    def _apply_serialized_patch_to_event(self, event: Event, patch_data: dict) -> bool:
+        """Применить данные API-клиента к модели. Возвращает True, если изменились summary или description."""
+        from tasks.models import Task
+
+        old_summary = event.summary
+        old_description = event.description
+
+        merged: dict = {}
+        if patch_data.get("start") is not None:
+            merged["start"] = patch_data["start"]
+        elif event.start:
+            merged["start"] = {"dateTime": event.start.isoformat()}
+        if patch_data.get("end") is not None:
+            merged["end"] = patch_data["end"]
+        elif event.end:
+            merged["end"] = {"dateTime": event.end.isoformat()}
+        if merged:
+            sd, ed = self._gcal._extract_event_datetimes(merged)
+            if sd is not None:
+                event.start = sd
+            if ed is not None:
+                event.end = ed
+
+        if "summary" in patch_data:
+            event.summary = patch_data["summary"]
+        if "description" in patch_data:
+            event.description = patch_data["description"]
+
+        ext = patch_data.get("extendedProperties")
+        if isinstance(ext, dict):
+            priv = ext.get("private") or {}
+            if "chronika__task-id" in priv:
+                tid_raw = priv.get("chronika__task-id")
+                parsed_tid = None
+                try:
+                    parsed_tid = int(tid_raw)
+                except (TypeError, ValueError):
+                    parsed_tid = None
+                if parsed_tid and Task.objects.filter(id=parsed_tid).exists():
+                    event.task_id = parsed_tid
+                else:
+                    event.task_id = None
+
+        return event.summary != old_summary or event.description != old_description
+
+    def create_calendar_event(
+        self,
+        *,
+        user,
+        user_calendar: UserCalendar,
+        event_data: dict,
+        task_id: int | None = None,
+        enqueue_embedding: bool = True,
+        attach_chronika_extended_props: bool = True,
+    ) -> Event:
+        """
+        Создаёт запись Event локально и ставит задачу на создание события в Google.
+
+        ``attach_chronika_extended_props`` оставлен для совместимости вызовов; расширенные поля
+        для Google формируются в ``sync_event_to_google`` через ``add_event_extended_properties``
+        и ``event.task_id``.
+        """
+        _ = user, attach_chronika_extended_props
+
+        start_dt, end_dt = self._gcal._extract_event_datetimes(event_data)
+
+        local_event = Event.objects.create(
+            user_calendar=user_calendar,
+            google_event_id=None,
+            summary=event_data.get("summary"),
+            description=event_data.get("description"),
+            start=start_dt,
+            end=end_dt,
+            task_id=task_id,
+            embedding_status=(
+                EmbeddingStatus.PENDING if enqueue_embedding else EmbeddingStatus.COMPLETED
+            ),
+            google_sync_status=GoogleCalendarSyncStatus.PENDING,
+        )
+
+        if enqueue_embedding:
+            self._schedule_embedding_after_commit(local_event.id)
+        self._schedule_sync_after_commit(local_event.id)
+        return local_event
+
+    def create_event_from_task(
+        self,
+        *,
+        user,
+        user_calendar: UserCalendar,
+        task,
+        start,
+        end,
+    ) -> Event:
+        _ = user
+
+        local_event = Event.objects.create(
+            user_calendar=user_calendar,
+            google_event_id=None,
+            summary=task.title,
+            description=task.notes,
+            start=start,
+            end=end,
+            task_id=task.id,
+            embedding_status=task.embedding_status,
+            google_sync_status=GoogleCalendarSyncStatus.PENDING,
+        )
+        local_event.embedding = task.embedding
+        local_event.save(update_fields=["embedding", "embedding_status"])
+        self._schedule_sync_after_commit(local_event.id)
+        return local_event
+
+    def update_calendar_event(
+        self,
+        *,
+        user,
+        user_calendar: UserCalendar,
+        event: Event,
+        patch_data: dict,
+    ) -> Event:
+        _ = user, user_calendar
+
+        text_changed = self._apply_serialized_patch_to_event(event, patch_data)
+        event.google_sync_status = GoogleCalendarSyncStatus.PENDING
+        if text_changed:
+            event.embedding_status = EmbeddingStatus.PENDING
+        event.save()
+
+        if text_changed:
+            self._schedule_embedding_after_commit(event.id)
+        self._schedule_sync_after_commit(event.id)
+        return event
+
+    def delete_calendar_event(self, *, user, user_calendar: UserCalendar, event: Event) -> None:
+        _ = user
+
+        google_event_id = event.google_event_id
+        google_calendar_id = user_calendar.google_calendar_id
+        owner_user_id = user_calendar.user_id
+
+        event.delete()
+
+        if google_event_id:
+            self._schedule_remote_delete_after_commit(
+                user_id=owner_user_id,
+                google_calendar_id=google_calendar_id,
+                google_event_id=google_event_id,
+            )
+
 
 def add_event_extended_properties(event: dict, task_id: int | None = None):
     """

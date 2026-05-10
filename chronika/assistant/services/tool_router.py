@@ -4,18 +4,28 @@ from datetime import datetime, timedelta, timezone as datetime_timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
 from assistant.integrations.semantic_search import SemanticSearchService
-from core.enums import EmbeddingStatus
 from events.models import Event, UserCalendar
-from events.tasks import generate_event_embedding
+from events.services import EventWriteService, add_event_extended_properties
 from tasks.models import Priority, Task
-from tasks.services import enqueue_task_embedding
+from tasks.services import (
+    create_task,
+    delete_task,
+    find_task_for_user_title_icontains,
+    get_default_user_calendar,
+    get_task_for_user,
+    tasks_for_user_queryset,
+    update_task,
+)
 
 from .scheduler_service import SchedulerService
+
+# Строгий семантический отбор для разрешения target у мутаций (update/delete).
+TARGET_RESOLUTION_SEMANTIC_THRESHOLD = 0.7
+TARGET_RESOLUTION_MAX_CANDIDATES = 3
 
 
 class ToolRouter:
@@ -35,10 +45,10 @@ class ToolRouter:
             return self._err("tool_execution_failed", str(exc), recoverable=True)
 
     def _tool_create_task(self, payload: dict[str, Any]) -> dict[str, Any]:
-        calendar = self._resolve_default_calendar()
+        calendar = get_default_user_calendar(self.user)
         if not calendar:
             return self._err("calendar_not_found", "У пользователя нет основного календаря.", recoverable=True)
-        task = Task.objects.create(
+        task = create_task(
             user=self.user,
             calendar=calendar,
             title=str(payload.get("title") or "").strip(),
@@ -46,7 +56,6 @@ class ToolRouter:
             due_date=self._parse_dt(payload.get("due_date")),
             priority=self._normalize_priority(payload.get("priority")),
         )
-        enqueue_task_embedding(task)
         return {"ok": True, "data": {"task": self._task_out(task)}}
 
     def _tool_update_task(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -54,25 +63,22 @@ class ToolRouter:
         if not task:
             return self._err("task_not_found", "Task not found", recoverable=True)
         updates = dict(payload.get("updates") or {})
-        should_refresh_embedding = any(key in updates for key in {"title", "notes"})
+        kwargs: dict[str, Any] = {}
         for key in ("title", "duration", "completed", "notes"):
             if key in updates:
-                setattr(task, key, updates[key])
+                kwargs[key] = updates[key]
         if "due_date" in updates:
-            task.due_date = self._parse_dt(updates.get("due_date"))
+            kwargs["due_date"] = self._parse_dt(updates.get("due_date"))
         if "priority" in updates:
-            task.priority = self._normalize_priority(updates.get("priority"))
-        task.save()
-        if should_refresh_embedding:
-            enqueue_task_embedding(task)
+            kwargs["priority"] = self._normalize_priority(updates.get("priority"))
+        task = update_task(task, **kwargs)
         return {"ok": True, "data": {"task": self._task_out(task)}}
 
     def _tool_delete_task(self, payload: dict[str, Any]) -> dict[str, Any]:
         task = self._resolve_task(payload)
         if not task:
             return self._err("task_not_found", "Task not found", recoverable=True)
-        deleted_id = task.id
-        task.delete()
+        deleted_id = delete_task(task)
         return {"ok": True, "data": {"deleted_id": deleted_id}}
 
     def _tool_create_event(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -84,47 +90,41 @@ class ToolRouter:
         if not end:
             end = start + timedelta(minutes=int(payload.get("duration_minutes") or 60))
         task_id = self._validated_task_id(payload.get("task_id"))
-        event = Event.objects.create(
-            user_calendar=calendar,
-            summary=str(payload.get("title") or payload.get("summary") or "").strip(),
-            description=payload.get("description"),
-            start=start,
-            end=end,
-            htmlLink=payload.get("htmlLink"),
-            organizer_email=payload.get("organizer_email"),
-            task_id=task_id,
-            embedding_status=EmbeddingStatus.PENDING,
-        )
-        transaction.on_commit(lambda event_id=event.id: generate_event_embedding.delay(event_id))
-        return {"ok": True, "data": {"event": self._event_out(event)}}
+        summary = str(payload.get("title") or payload.get("summary") or "").strip()
+        event_data = {
+            "summary": summary,
+            "description": payload.get("description"),
+            "start": {"dateTime": start.isoformat()},
+            "end": {"dateTime": end.isoformat()},
+        }
+        try:
+            local_event = EventWriteService().create_calendar_event(
+                user=self.user,
+                user_calendar=calendar,
+                event_data=event_data,
+                task_id=task_id,
+                enqueue_embedding=True,
+            )
+        except Exception as exc:
+            return self._err("tool_execution_failed", str(exc), recoverable=True)
+        return {"ok": True, "data": {"event": self._event_out(local_event)}}
 
     def _tool_update_event(self, payload: dict[str, Any]) -> dict[str, Any]:
         event = self._resolve_event(payload)
         if not event:
             return self._err("event_not_found", "Event not found", recoverable=True)
         updates = dict(payload.get("updates") or {})
-        old_summary = event.summary
-        old_description = event.description
-        if "summary" in updates or "title" in updates:
-            event.summary = updates.get("summary") or updates.get("title")
-        if "description" in updates:
-            event.description = updates.get("description")
-        if "start" in updates:
-            event.start = self._parse_dt(updates.get("start"))
-        if "end" in updates:
-            event.end = self._parse_dt(updates.get("end"))
-        if "task_id" in updates:
-            event.task_id = self._validated_task_id(updates.get("task_id"))
-        if "htmlLink" in updates:
-            event.htmlLink = updates.get("htmlLink")
-        if "organizer_email" in updates:
-            event.organizer_email = updates.get("organizer_email")
-        text_fields_changed = event.summary != old_summary or event.description != old_description
-        if text_fields_changed:
-            event.embedding_status = EmbeddingStatus.PENDING
-        event.save()
-        if text_fields_changed:
-            transaction.on_commit(lambda event_id=event.id: generate_event_embedding.delay(event_id))
+        patch_data = self._event_updates_to_google_patch(updates)
+        try:
+            EventWriteService().update_calendar_event(
+                user=self.user,
+                user_calendar=event.user_calendar,
+                event=event,
+                patch_data=patch_data,
+            )
+        except Exception as exc:
+            return self._err("tool_execution_failed", str(exc), recoverable=True)
+        event.refresh_from_db()
         return {"ok": True, "data": {"event": self._event_out(event)}}
 
     def _tool_delete_event(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -132,7 +132,15 @@ class ToolRouter:
         if not event:
             return self._err("event_not_found", "Event not found", recoverable=True)
         deleted_id = event.id
-        event.delete()
+        user_calendar = event.user_calendar
+        try:
+            EventWriteService().delete_calendar_event(
+                user=self.user,
+                user_calendar=user_calendar,
+                event=event,
+            )
+        except Exception as exc:
+            return self._err("tool_execution_failed", str(exc), recoverable=True)
         return {"ok": True, "data": {"deleted_id": deleted_id}}
 
     def _tool_move_event(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -179,14 +187,7 @@ class ToolRouter:
         # Primary path: semantic search (query is treated as intent text, not strict title substring).
         include_completed_tasks = self._to_bool(filters.get("completed")) is True
         include_past_events = bool(filters.get("date_from"))
-        vec = []
-        try:
-            from assistant.integrations.embeddings_model import EmbeddingsModelProvider
-
-            emb = EmbeddingsModelProvider.encode(query)
-            vec = emb.tolist() if hasattr(emb, "tolist") else list(emb or [])
-        except Exception:
-            vec = []
+        vec = self._encode_query_embedding(query)
         if vec:
             scope = "tasks" if entity_type == "task" else "events" if entity_type == "event" else "all"
             for c in self.semantic_search.find_candidates(
@@ -205,6 +206,89 @@ class ToolRouter:
                     _append_item({"id": c.object_id, "entity_type": "event", "data": self._event_out(c.payload)})
 
         return {"ok": True, "data": {"items": items, "total": len(items)}}
+
+    def candidate_items_for_target_resolution(
+        self,
+        *,
+        query: str,
+        entity_type: str,
+        similarity_threshold: float | None = None,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """
+        Кандидаты для подстановки task_id/event_id: высокий порог сходства, не более ``limit``.
+        Формат элементов как у ``search_entities`` (id, entity_type, data).
+        При пустой семантике — узкий лексический fallback (задача: одна по подстроке заголовка;
+        событие: до ``limit`` по подстроке summary).
+        """
+        threshold = (
+            float(similarity_threshold)
+            if similarity_threshold is not None
+            else TARGET_RESOLUTION_SEMANTIC_THRESHOLD
+        )
+        max_n = int(limit if limit is not None else TARGET_RESOLUTION_MAX_CANDIDATES)
+        q = str(query or "").strip()
+        if not q:
+            return []
+        sq = self._build_semantic_query(query=q, filters={})
+        vec = self._encode_query_embedding(q)
+        items: list[dict[str, Any]] = []
+        et = str(entity_type or "").strip().lower()
+        if vec:
+            if et == "task":
+                for c in self.semantic_search.find_tasks(
+                    user=self.user,
+                    embedding=vec,
+                    similarity_threshold=threshold,
+                    limit=max_n,
+                    include_completed_tasks=True,
+                    query=sq,
+                ):
+                    if isinstance(c.payload, Task):
+                        items.append(
+                            {
+                                "id": c.object_id,
+                                "entity_type": "task",
+                                "data": self._task_out(c.payload),
+                            }
+                        )
+            elif et == "event":
+                for c in self.semantic_search.find_events(
+                    user=self.user,
+                    embedding=vec,
+                    similarity_threshold=threshold,
+                    limit=max_n,
+                    include_past_events=True,
+                    query=sq,
+                ):
+                    if isinstance(c.payload, Event):
+                        items.append(
+                            {
+                                "id": c.object_id,
+                                "entity_type": "event",
+                                "data": self._event_out(c.payload),
+                            }
+                        )
+        if items:
+            return items[:max_n]
+        if et == "task":
+            task = find_task_for_user_title_icontains(self.user, q)
+            if task:
+                return [
+                    {"id": task.id, "entity_type": "task", "data": self._task_out(task)}
+                ]
+            return []
+        if et == "event":
+            matches = list(
+                Event.objects.filter(
+                    user_calendar__user=self.user, summary__icontains=q
+                ).order_by("-updated")[:max_n]
+            )
+            return [
+                {"id": ev.id, "entity_type": "event", "data": self._event_out(ev)}
+                for ev in matches
+            ]
+        return []
 
     def _tool_find_slots(self, payload: dict[str, Any]) -> dict[str, Any]:
         start = self._require_dt(payload.get("window_start"), "window_start")
@@ -244,7 +328,7 @@ class ToolRouter:
     def _resolve_planning_embedding(self, planning_context: dict[str, Any]) -> list[float]:
         task_id = self._validated_task_id(planning_context.get("task_id"))
         if task_id:
-            task = Task.objects.filter(user=self.user, id=task_id).first()
+            task = get_task_for_user(self.user, task_id)
             if task and task.embedding is not None:
                 return task.embedding.tolist() if hasattr(task.embedding, "tolist") else list(task.embedding)
 
@@ -262,20 +346,64 @@ class ToolRouter:
             return []
 
     def _resolve_task(self, payload: dict[str, Any]) -> Task | None:
-        if payload.get("task_id"):
-            return Task.objects.filter(user=self.user, id=payload["task_id"]).first()
+        tid = payload.get("task_id")
+        if tid is not None:
+            try:
+                return get_task_for_user(self.user, int(tid))
+            except (TypeError, ValueError):
+                return None
         query = str(payload.get("target_query") or "").strip()
-        if query:
-            return Task.objects.filter(user=self.user, title__icontains=query).order_by("-updated").first()
-        return None
+        if not query:
+            return None
+        items = self.candidate_items_for_target_resolution(
+            query=query, entity_type="task"
+        )
+        if len(items) != 1:
+            return None
+        pk = items[0].get("id")
+        try:
+            return get_task_for_user(self.user, int(pk))
+        except (TypeError, ValueError):
+            return None
+
+    def _event_updates_to_google_patch(self, updates: dict[str, Any]) -> dict[str, Any]:
+        """Поля для Google Calendar patch из словаря обновлений ассистента."""
+        patch: dict[str, Any] = {}
+        if "summary" in updates or "title" in updates:
+            patch["summary"] = (updates.get("summary") or updates.get("title") or "").strip()
+        if "description" in updates:
+            patch["description"] = updates.get("description")
+        if "start" in updates:
+            dt = self._parse_dt(updates.get("start"))
+            if dt:
+                patch["start"] = {"dateTime": dt.isoformat()}
+        if "end" in updates:
+            dt = self._parse_dt(updates.get("end"))
+            if dt:
+                patch["end"] = {"dateTime": dt.isoformat()}
+        if "task_id" in updates:
+            tid = self._validated_task_id(updates.get("task_id"))
+            add_event_extended_properties(patch, tid)
+        return patch
 
     def _resolve_event(self, payload: dict[str, Any]) -> Event | None:
         if payload.get("event_id"):
             return Event.objects.filter(user_calendar__user=self.user, id=payload["event_id"]).first()
         query = str(payload.get("target_query") or "").strip()
-        if query:
-            return Event.objects.filter(user_calendar__user=self.user, summary__icontains=query).order_by("-updated").first()
-        return None
+        if not query:
+            return None
+        items = self.candidate_items_for_target_resolution(
+            query=query, entity_type="event"
+        )
+        if len(items) != 1:
+            return None
+        pk = items[0].get("id")
+        try:
+            return Event.objects.filter(
+                user_calendar__user=self.user, id=int(pk)
+            ).first()
+        except (TypeError, ValueError):
+            return None
 
     def _task_out(self, task: Task) -> dict[str, Any]:
         return {
@@ -316,8 +444,12 @@ class ToolRouter:
         return dt
 
     def _normalize_priority(self, value) -> str:
-        val = str(value or Priority.MEDIUM).upper()
-        return val if val in Priority.values else Priority.MEDIUM
+        if value is None:
+            return Priority.NONE
+        if isinstance(value, str) and not value.strip():
+            return Priority.NONE
+        val = str(value).strip().upper()
+        return val if val in Priority.values else Priority.NONE
 
     @staticmethod
     def _validated_task_id(raw_task_id: Any) -> int | None:
@@ -328,14 +460,10 @@ class ToolRouter:
         return parsed if Task.objects.filter(id=parsed).exists() else None
 
     def _resolve_default_calendar(self) -> UserCalendar | None:
-        return (
-            UserCalendar.objects.filter(user=self.user, primary=True).order_by("-updated_at").first()
-            or UserCalendar.objects.filter(user=self.user, selected=True).order_by("-updated_at").first()
-            or UserCalendar.objects.filter(user=self.user).order_by("-updated_at").first()
-        )
+        return get_default_user_calendar(self.user)
 
     def _list_tasks_filtered(self, *, filters: dict[str, Any], limit: int) -> list[Task]:
-        qs = Task.objects.filter(user=self.user)
+        qs = tasks_for_user_queryset(self.user)
         completed = self._to_bool(filters.get("completed"))
         if completed is None:
             qs = qs.filter(completed=False)
@@ -360,6 +488,19 @@ class ToolRouter:
         if date_to:
             qs = qs.filter(start__lte=date_to)
         return list(qs.order_by("-updated")[:limit])
+
+    @staticmethod
+    def _encode_query_embedding(text: str) -> list[float]:
+        q = str(text or "").strip()
+        if not q:
+            return []
+        try:
+            from assistant.integrations.embeddings_model import EmbeddingsModelProvider
+
+            emb = EmbeddingsModelProvider.encode(q)
+            return emb.tolist() if hasattr(emb, "tolist") else list(emb or [])
+        except Exception:
+            return []
 
     @staticmethod
     def _build_semantic_query(*, query: str, filters: dict[str, Any]) -> dict[str, Any]:

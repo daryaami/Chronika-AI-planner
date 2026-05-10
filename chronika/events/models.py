@@ -2,7 +2,7 @@ from django.db import models
 from django.conf import settings
 from django.db.models import Q, UniqueConstraint
 from pgvector.django import VectorField
-from core.enums import EmbeddingStatus
+from core.enums import EmbeddingStatus, GoogleCalendarSyncStatus
 
 User = settings.AUTH_USER_MODEL
 
@@ -85,6 +85,12 @@ class Event(models.Model):
         max_length=10,
         choices=EmbeddingStatus.choices,
         default=EmbeddingStatus.PENDING,
+    )
+    google_sync_status = models.CharField(
+        max_length=16,
+        choices=GoogleCalendarSyncStatus.choices,
+        default=GoogleCalendarSyncStatus.SYNCED,
+        help_text="Состояние выгрузки в Google Calendar (асинхронно после локальных изменений).",
     )
 
     task = models.ForeignKey(
