@@ -139,7 +139,13 @@ const userCategoryIdModel = computed({
 <template>
   <form class="task-card">
     <div class="task-card__header">
-      <CustomDatePicker v-model="taskCopy.due_date" @update:modelValue="updateTask(taskCopy)" />
+      <CustomDatePicker
+          v-model="taskCopy.due_date"
+          :enable-time-picker="false"
+          position="left"
+          teleport
+          @update:modelValue="updateTask(taskCopy)"
+      />
       <div class="task-card__header-divider"></div>
       <SelectSmall v-model="taskCopy.priority"
                    :options="PRIORITIES"

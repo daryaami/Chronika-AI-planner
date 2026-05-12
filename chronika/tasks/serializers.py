@@ -1,8 +1,8 @@
 from rest_framework import serializers
-from .models import Task, Category
-from events.models import Event
-from events.models import UserCalendar
-from django.db.models import Q
+
+from events.models import Event, UserCalendar
+
+from .models import Category, Task
 
 
 class TaskEventSerializer(serializers.ModelSerializer):
@@ -68,18 +68,6 @@ class TaskSerializer(serializers.ModelSerializer):
             'notes',
         ]
         read_only_fields = ['created', 'updated']
-
-    def create(self, validated_data):
-        user = self.context['request'].user
-
-        if 'calendar' not in validated_data:
-            try:
-                validated_data['calendar'] = user.calendars.get(primary=True)
-            except UserCalendar.DoesNotExist:
-                raise serializers.ValidationError("У пользователя нет основного календаря.")
-
-        validated_data['user'] = user
-        return super().create(validated_data)
 
     def update(self, instance, validated_data):
         validated_data.pop('user', None)

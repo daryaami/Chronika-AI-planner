@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {useTasksStore} from "@/store/tasks";
-import {onMounted, ref, watch} from "vue";
+import {computed, onMounted, ref, watch} from "vue";
 import {Task} from "@/types/task";
 import TaskItem from "@/components/blocks/tasks/TaskItem.vue";
 
@@ -15,136 +15,115 @@ const emit = defineEmits<{
 const tasksStore = useTasksStore()
 
 const tasks = ref<Task[]>([])
-const inboxTasks = ref<Task[]>([])
-const todayTasks = ref<Task[]>([])
-const nextWeekTasks = ref<Task[]>([])
-const laterTasks = ref<Task[]>([])
-const completedTasks = ref<Task[]>([])
+type TaskGroup = {
+  key: "today" | "tomorrow" | "week" | "later" | "other";
+  title: string;
+  tasks: Task[];
+};
 
-const sortTasks = () => {
-  const sortedToInbox: Task[] = []
-  const sortedToToday: Task[] = []
-  const sortedToNextWeek: Task[] = []
-  const sortedToLater: Task[] = []
-  const sortedToCompleted: Task[] = []
+const startOfDay = (date: Date) => {
+  const result = new Date(date);
+  result.setHours(0, 0, 0, 0);
+  return result;
+};
 
-  const now = new Date()
+const isSameDay = (left: Date, right: Date) =>
+  left.getFullYear() === right.getFullYear() &&
+  left.getMonth() === right.getMonth() &&
+  left.getDate() === right.getDate();
 
-  const startOfToday = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate()
-  )
+const endOfWeek = (date: Date) => {
+  const start = startOfDay(date);
+  const day = start.getDay();
+  const diff = day === 0 ? 6 : day - 1;
+  const monday = new Date(start);
+  monday.setDate(start.getDate() - diff);
 
-  const endOfToday = new Date(startOfToday)
-  endOfToday.setDate(endOfToday.getDate() + 1)
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  sunday.setHours(23, 59, 59, 999);
+  return sunday;
+};
 
-  const endOfNextWeek = new Date(startOfToday)
-  endOfNextWeek.setDate(endOfNextWeek.getDate() + 7)
+const activeTasks = computed(() => tasks.value.filter((task) => !task.completed));
+const completedTasks = computed(() => tasks.value.filter((task) => task.completed));
 
-  tasks.value.forEach((item) => {
-    if (item.completed) {
-      sortedToCompleted.push(item)
-      return;
+const sortedTasks = computed(() => {
+  return [...activeTasks.value].sort((a, b) => {
+    const aHasDate = !!a.due_date;
+    const bHasDate = !!b.due_date;
+
+    if (aHasDate && bHasDate) {
+      return new Date(a.due_date!).getTime() - new Date(b.due_date!).getTime();
     }
 
-    if (!item.events.length) {
-      sortedToInbox.push(item)
-      return
-    }
+    if (aHasDate) return -1;
+    if (bHasDate) return 1;
+    return 0;
+  });
+});
 
-    // сортируем логи по возрастанию
-    const sortedLogs = [...item.events].sort(
-      (a, b) =>
-        new Date(a.start_time).getTime() -
-        new Date(b.start_time).getTime()
-    )
+const groupedTasks = computed<TaskGroup[]>(() => {
+  const withDate = sortedTasks.value.filter((task) => !!task.due_date);
+  const withoutDate = sortedTasks.value.filter((task) => !task.due_date);
 
-    // ищем ближайший лог в будущем
-    const nextLog = sortedLogs.find(
-      (log) => new Date(log.start_time) >= now
-    )
+  if (!withDate.length) {
+    return withoutDate.length
+      ? [{ key: "other", title: "Без срока", tasks: withoutDate }]
+      : [];
+  }
 
-    if (!nextLog) {
-      // все логи в прошлом
-      sortedToInbox.push(item)
-      return
-    }
+  const today = startOfDay(new Date());
+  const tomorrow = new Date(today);
+  tomorrow.setDate(today.getDate() + 1);
+  const weekEnd = endOfWeek(today);
 
-    const logDate = new Date(nextLog.start_time)
+  const groups: TaskGroup[] = [
+    { key: "today", title: "Сегодня", tasks: [] },
+    { key: "tomorrow", title: "Завтра", tasks: [] },
+    { key: "week", title: "На этой неделе", tasks: [] },
+    { key: "later", title: "Позже", tasks: [] },
+  ];
 
-    if (logDate >= startOfToday && logDate < endOfToday) {
-      sortedToToday.push(item)
-    } else if (logDate < endOfNextWeek) {
-      sortedToNextWeek.push(item)
+  for (const task of withDate) {
+    const dueDate = new Date(task.due_date!);
+    if (dueDate < today || isSameDay(dueDate, today)) {
+      groups[0].tasks.push(task);
+    } else if (isSameDay(dueDate, tomorrow)) {
+      groups[1].tasks.push(task);
+    } else if (dueDate > tomorrow && dueDate <= weekEnd) {
+      groups[2].tasks.push(task);
     } else {
-      sortedToLater.push(item)
+      groups[3].tasks.push(task);
     }
-  })
+  }
 
-  inboxTasks.value = sortedToInbox
-  todayTasks.value = sortedToToday
-  nextWeekTasks.value = sortedToNextWeek
-  laterTasks.value = sortedToLater
-  completedTasks.value = sortedToCompleted
-}
+  const visibleGroups = groups.filter((group) => group.tasks.length);
+  if (withoutDate.length) {
+    visibleGroups.push({ key: "other", title: "Без срока", tasks: withoutDate });
+  }
+
+  return visibleGroups;
+});
 
 
 onMounted(async () => {
   tasks.value = await tasksStore.getTasks()
-  sortTasks()
 })
 
 watch(() => tasksStore.tasks, async () => {
   tasks.value = await tasksStore.getTasks()
-  sortTasks()
 })
 </script>
 
 <template>
   <div>
     <div class="tasks-list-wrapper"
-         v-if="todayTasks.length"
-    >
-      <span class="tasks-list-wrapper__title">Сегодня</span>
+         v-for="group in groupedTasks"
+         :key="group.key">
+      <span class="tasks-list-wrapper__title">{{ group.title }}</span>
       <div class="tasks-list">
-        <TaskItem v-for="task in todayTasks"
-                  :key="task.id"
-                  :task="task" @click="emit('update:modelValue', task)"
-        />
-      </div>
-    </div>
-
-
-    <!--  Список nextWeekTasks  -->
-    <div class="tasks-list-wrapper"
-         v-if="nextWeekTasks.length">
-      <span class="tasks-list-wrapper__title">На следующей неделе</span>
-      <div class="tasks-list">
-        <TaskItem v-for="task in nextWeekTasks"
-                  :key="task.id"
-                  :task="task" @click="emit('update:modelValue', task)"
-        />
-      </div>
-    </div>
-
-
-    <!--  Список laterTasks  -->
-    <div class="tasks-list-wrapper" v-if="laterTasks.length">
-      <span class="tasks-list-wrapper__title">Позже</span>
-      <div class="tasks-list">
-        <TaskItem v-for="task in laterTasks"
-                  :key="task.id"
-                  :task="task" @click="emit('update:modelValue', task)"
-        />
-      </div>
-    </div>
-
-    <div class="tasks-list-wrapper"
-         v-if="inboxTasks.length">
-      <span class="tasks-list-wrapper__title">Входящие</span>
-      <div class="tasks-list">
-        <TaskItem v-for="task in inboxTasks"
+        <TaskItem v-for="task in group.tasks"
                   :key="task.id"
                   :task="task" @click="emit('update:modelValue', task)"
         />

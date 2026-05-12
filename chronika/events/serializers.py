@@ -15,6 +15,12 @@ class UserCalendarSerializer(serializers.ModelSerializer):
 
 
 class GoogleCalendarEventSerializer(serializers.Serializer):
+    """
+    Форма ответа/тела как у Google Calendar API: поле ``id`` — строковый ID события в Google,
+    не PK таблицы Event. При сохранении в БД это значение кладётся в ``Event.google_event_id``
+    (см. ``GoogleCalendarService.upsert_local_event``: ``event_data["id"]`` → ``google_event_id``).
+    """
+
     id = serializers.CharField()
     summary = serializers.CharField(required=False, allow_blank=True)
     status = serializers.CharField(required=False)
@@ -94,13 +100,14 @@ class GoogleCalendarEventCreateSerializer(serializers.Serializer):
         return data
     
 class GoogleCalendarEventUpdateSerializer(GoogleCalendarEventCreateSerializer):
-    event_id = serializers.CharField(required=True)
+    id = serializers.IntegerField(required=True, help_text="ID события в БД Chronika (Event.id)")
     user_calendar_id = serializers.IntegerField(required=True, help_text="ID календаря из базы данных (UserCalendar.id)")
     extendedProperties = serializers.DictField(required=False)
     summary = serializers.CharField(required=False)
 
+
 class GoogleCalendarEventDeleteSerializer(serializers.Serializer):
-    event_id = serializers.CharField(required=True)
+    id = serializers.IntegerField(required=True, help_text="ID события в БД Chronika (Event.id)")
     user_calendar_id = serializers.IntegerField(required=True, help_text="ID календаря из базы данных (UserCalendar.id)")
 
 class EventFromTaskSerializer(serializers.Serializer):
@@ -118,11 +125,12 @@ class EventFromTaskSerializer(serializers.Serializer):
 class EventFromTaskDeleteSerializer(serializers.Serializer):
     task_id = serializers.IntegerField(required=True)
     user_calendar_id = serializers.IntegerField(required=True, help_text="ID календаря из базы данных (UserCalendar.id)")
-    event_id = serializers.CharField(required=True)
+    id = serializers.IntegerField(required=True, help_text="ID события в БД Chronika (Event.id)")
 
 
 class EventSerializer(serializers.ModelSerializer):
-    id = serializers.CharField(source="google_event_id", read_only=True)
+    """Локальное представление события: id — PK в БД, google_event_id — идентификатор в Google Calendar."""
+
     status = serializers.CharField(read_only=True, default="confirmed")
     organizer_email = serializers.EmailField(required=False, allow_null=True)
     user_calendar_id = serializers.IntegerField(read_only=True)
@@ -134,6 +142,8 @@ class EventSerializer(serializers.ModelSerializer):
         model = Event
         fields = [
             "id",
+            "google_event_id",
+            "google_sync_status",
             "summary",
             "status",
             "htmlLink",
@@ -146,6 +156,7 @@ class EventSerializer(serializers.ModelSerializer):
             "description",
             "color",
         ]
+        read_only_fields = ["id", "google_event_id", "google_sync_status", "created", "updated"]
 
     def get_color(self, obj):
         return obj.user_calendar.background_color if obj.user_calendar_id else None

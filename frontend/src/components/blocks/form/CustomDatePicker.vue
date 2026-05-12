@@ -3,9 +3,16 @@ import VueDatePicker from "@vuepic/vue-datepicker";
 import { computed } from "vue";
 import {toWeekDayAndDate} from "@/components/js/time-utils";
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   modelValue: Date | string | null;
-}>();
+  enableTimePicker?: boolean;
+  /** Выравнивание меню относительно триггера: left — смещает меню правее относительно center */
+  position?: "left" | "center" | "right";
+  /** true — телепорт в body (удобно при overflow у предков) */
+  teleport?: boolean | string;
+}>(), {
+  enableTimePicker: true,
+});
 
 const emit = defineEmits<{
   (e: "update:modelValue", value: Date | null): void;
@@ -30,7 +37,7 @@ const displayValue = computed(() => {
 </script>
 
 <template>
-  <VueDatePicker v-model="value" locale="ru-RU">
+  <VueDatePicker v-model="value">
     <template #trigger>
       <button
         type="button"

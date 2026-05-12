@@ -132,7 +132,12 @@ onMounted(async () => {
 
     <!-- Buttons -->
     <div class="task-add-input__buttons" v-show="isExpanded">
-      <CustomDatePicker v-model="dueDate" />
+      <CustomDatePicker
+        v-model="dueDate"
+        :enable-time-picker="false"
+        position="left"
+        teleport
+      />
 
       <SelectSmall
         v-model="priority"

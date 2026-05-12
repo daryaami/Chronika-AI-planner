@@ -11,10 +11,10 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 from tasks.models import Task
-from .services import GoogleCalendarService, add_event_extended_properties
+from .services import EventWriteService, GoogleCalendarService
 from core.exceptions import GoogleAuthError, GoogleNetworkError, GoogleRefreshTokenError
 from .models import Event, UserCalendar
-from .serializers import EventFromTaskSerializer, EventSerializer, GoogleCalendarEventCreateSerializer, GoogleCalendarEventDeleteSerializer, GoogleCalendarEventSerializer, GoogleCalendarEventUpdateSerializer, UserCalendarSerializer
+from .serializers import EventFromTaskSerializer, EventSerializer, GoogleCalendarEventCreateSerializer, GoogleCalendarEventDeleteSerializer, GoogleCalendarEventUpdateSerializer, UserCalendarSerializer
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
 
@@ -95,7 +95,7 @@ class UserCalendarEventsApi(APIView):
         operation_description="Создать новое событие в календаре пользователя",
         request_body=GoogleCalendarEventCreateSerializer,
         responses={
-            201: GoogleCalendarEventSerializer,
+            201: EventSerializer,
             400: openapi.Response('Ошибка в данных события'),
         }
     )
@@ -112,21 +112,26 @@ class UserCalendarEventsApi(APIView):
 
         # Получаем объект UserCalendar по ID из базы данных
         user_calendar = get_object_or_404(UserCalendar, id=user_calendar_id, user=request.user)
-        google_calendar_id = user_calendar.google_calendar_id
 
-        calendar_service = GoogleCalendarService()
-        event = calendar_service.create_event(request.user, google_calendar_id, event_data)
-        calendar_service.upsert_local_event(user_calendar=user_calendar, event_data=event)
-        event["user_calendar_id"] = user_calendar.id
+        write_service = EventWriteService()
+        local_event = write_service.create_calendar_event(
+            user=request.user,
+            user_calendar=user_calendar,
+            event_data=event_data,
+            task_id=None,
+            enqueue_embedding=True,
+        )
 
-        response_serializer = GoogleCalendarEventSerializer(event)
-        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+        return Response(
+            EventSerializer(local_event).data,
+            status=status.HTTP_201_CREATED,
+        )
 
     @swagger_auto_schema(
         operation_description="Обновить событие в календаре пользователя",
         request_body=GoogleCalendarEventUpdateSerializer,
         responses={
-            200: GoogleCalendarEventSerializer,
+            200: EventSerializer,
             400: openapi.Response('Ошибка в данных события')
         }
     )
@@ -137,31 +142,30 @@ class UserCalendarEventsApi(APIView):
         serializer.is_valid(raise_exception=True)
 
         user_calendar_id = serializer.validated_data.pop("user_calendar_id")
-        event_id = serializer.validated_data.pop("event_id")
+        event_pk = serializer.validated_data.pop("id")
         event_data = serializer.validated_data
 
-        # Получаем объект UserCalendar по ID из базы данных
         user_calendar = get_object_or_404(UserCalendar, id=user_calendar_id, user=request.user)
-        google_calendar_id = user_calendar.google_calendar_id
+        event_obj = get_object_or_404(
+            Event,
+            id=event_pk,
+            user_calendar=user_calendar,
+        )
 
         try:
-            calendar_service = GoogleCalendarService()
-            event = calendar_service.update_event(request.user, google_calendar_id, event_id, event_data)
+            write_service = EventWriteService()
+            write_service.update_calendar_event(
+                user=request.user,
+                user_calendar=user_calendar,
+                event=event_obj,
+                patch_data=event_data,
+            )
         except Exception as e:
-            return Response({"error": f"Не удалось обновить событие в Google Calendar: {str(e)}"},
+            return Response({"error": f"Не удалось сохранить событие: {str(e)}"},
                             status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        ext_props = event.get("extendedProperties", {}).get("private", {})
-        task_id = ext_props.get("chronika__task-id")
-        calendar_service.upsert_local_event(
-            user_calendar=user_calendar,
-            event_data=event,
-            task_id=task_id,
-        )
-        event["user_calendar_id"] = user_calendar.id
-
-        response_serializer = GoogleCalendarEventSerializer(event)
-        return Response(response_serializer.data, status=status.HTTP_200_OK)
+        event_obj.refresh_from_db()
+        return Response(EventSerializer(event_obj).data, status=status.HTTP_200_OK)
 
     @swagger_auto_schema(
         operation_description="Удалить событие из календаря пользователя",
@@ -178,24 +182,22 @@ class UserCalendarEventsApi(APIView):
         serializer.is_valid(raise_exception=True)
 
         user_calendar_id = serializer.validated_data["user_calendar_id"]
-        event_id = serializer.validated_data["event_id"]
+        event_pk = serializer.validated_data["id"]
 
         user_calendar = get_object_or_404(UserCalendar, id=user_calendar_id, user=request.user)
-        google_calendar_id = user_calendar.google_calendar_id
-
-        calendar_service = GoogleCalendarService()
-        calendar_service.delete_event(request.user, google_calendar_id, event_id)
-
-        event_deleted = False
-        deleted_count, _ = Event.objects.filter(
+        event_obj = get_object_or_404(
+            Event,
+            id=event_pk,
             user_calendar=user_calendar,
-            google_event_id=event_id,
-        ).delete()
-        if deleted_count:
-            event_deleted = True
+        )
+        EventWriteService().delete_calendar_event(
+            user=request.user,
+            user_calendar=user_calendar,
+            event=event_obj,
+        )
 
         return Response(
-            {"success": "Событие успешно удалено", "event_deleted": event_deleted},
+            {"success": "Событие успешно удалено", "event_deleted": True},
             status=status.HTTP_204_NO_CONTENT
         )
 
@@ -358,7 +360,7 @@ class EventFromTaskApi(APIView):
             openapi.Parameter('end', openapi.IN_QUERY, description="Дата окончания (%Y-%m-%d)", type=openapi.TYPE_STRING),
         ],
         responses={
-            201: GoogleCalendarEventSerializer(many=False),
+            201: EventSerializer(),
             400: openapi.Response('Неверный формат дат или отсутствуют параметры start и end', examples={
                 'application/json': {"error": "Параметры start и end обязательны"}
             }),
@@ -376,46 +378,19 @@ class EventFromTaskApi(APIView):
 
         try:
             with transaction.atomic():
-                # 1. Готовим событие
-                event_data = {
-                    "summary": task.title,
-                    "description": task.notes,
-                    "start": {"dateTime": validated["start"].isoformat()},
-                    "end": {"dateTime": validated["end"].isoformat()},
-                }
-                extended_event = add_event_extended_properties(event_data, task.id)
-
-                # 2. Создаем событие
-                gcal_service = GoogleCalendarService()
-
-                calendar_event = gcal_service.create_event(
+                local_event = EventWriteService().create_event_from_task(
                     user=request.user,
-                    google_calendar_id=user_calendar.google_calendar_id,
-                    event_data=extended_event
-                )
-                calendar_event['user_calendar_id'] = user_calendar.id
-
-                # 3. Сохраняем локальную запись Event, связанную с задачей
-                calendar_event["summary"] = calendar_event.get("summary") or task.title
-                calendar_event["description"] = calendar_event.get("description") or task.notes
-                local_event = gcal_service.upsert_local_event(
                     user_calendar=user_calendar,
-                    event_data=calendar_event,
-                    task_id=task.id,
-                    start_dt=validated["start"],
-                    end_dt=validated["end"],
-                    enqueue_embedding=False,
+                    task=task,
+                    start=validated["start"],
+                    end=validated["end"],
                 )
-                local_event.embedding = task.embedding
-                local_event.embedding_status = task.embedding_status
-                local_event.save(update_fields=["embedding", "embedding_status"])
-                
+
         except Exception as e:
             return Response(
                 {"error": f"Не удалось создать событие: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-        response_serializer = GoogleCalendarEventSerializer(calendar_event)
-
-        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+        local_event.refresh_from_db()
+        return Response(EventSerializer(local_event).data, status=status.HTTP_201_CREATED)
