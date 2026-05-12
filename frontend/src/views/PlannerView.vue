@@ -81,6 +81,7 @@ const openCreatePopup = (info: any) => {
 
 const calendarOptions: CalendarOptions = {
   plugins: [timeGridPlugin, interactionPlugin],
+  locale: 'ru',
   headerToolbar: false,
   initialView: 'timeGridWeek',
   firstDay: 1,
@@ -94,9 +95,13 @@ const calendarOptions: CalendarOptions = {
   // slotDuration: '00:15:00',
   height: '100%',
   dayHeaderContent: (data) => {
+    const weekday = data.date.toLocaleDateString('ru-RU', { weekday: 'short' });
+    const formattedWeekday = weekday.replace('.', '');
+    const day = data.date.toLocaleDateString('ru-RU', { day: 'numeric' });
+
     return {
-      html: `<div class="planner__weekday">${data.text.split(' ')[1]}</div>
-             <div class="planner__day">${data.text.split(' ')[0]}</div>`
+      html: `<div class="planner__weekday">${formattedWeekday}</div>
+             <div class="planner__day">${day}</div>`
     }
   },
   slotLabelContent: (data) => {

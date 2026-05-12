@@ -7,6 +7,6 @@ const text = defineModel()
     <textarea class="input__input" rows="1"
       v-model="text"
     ></textarea>
-    <span class="input__label">Notes</span>
+    <span class="input__label">Добавить заметку</span>
   </div>
 </template>

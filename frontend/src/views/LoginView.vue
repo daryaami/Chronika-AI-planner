@@ -25,14 +25,14 @@ const loginWithGoogle = async () => {
       <ChronikaLogo
         class="login-page__logo"
       />
-      <h1 class="login-page__title">Log in to Chronika</h1>
+      <h1 class="login-page__title">Вход в Chronika</h1>
 
       <GoogleBtn class="login-page__button"
         @click="loginWithGoogle"
-        text="Continue with Google"
+        text="Войти с Google"
       />
 
-    <p class="login-page__privacy-text">By using Chronika, you agree to our Terms of Service and <a href="/privacy-policy/">Privacy Policy</a>.</p>
+    <p class="login-page__privacy-text">Используя Chronika, вы соглашаетесь с нашими Условиями использования и <a href="/privacy-policy/">Политикой конфиденциальности</a>.</p>
     </section>
 </template>
 

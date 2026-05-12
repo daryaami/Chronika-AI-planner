@@ -71,7 +71,7 @@ const maskaOptions = {
       <svg height="18" width="18">
         <use href="#duration" />
       </svg>
-      <span>Duration</span>
+      <span>Длительность</span>
     </label>
 
     <div class="duration-input__input-wrapper">

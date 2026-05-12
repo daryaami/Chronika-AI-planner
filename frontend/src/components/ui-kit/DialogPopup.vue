@@ -17,9 +17,9 @@ interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  title: 'Title',
-  confirmText: 'Confirm',
-  cancelText: 'Cancel',
+  title: 'Название',
+  confirmText: 'Подтвердить',
+  cancelText: 'Отмена',
   type: 'default',
 })
 

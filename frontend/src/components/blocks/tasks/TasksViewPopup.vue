@@ -17,15 +17,15 @@ const { isOpen, toggle } = useDropdown(rootEl);
 
     <Dropdown class="view-popup__dropdown"
               v-if="isOpen">
-      <ToggleButtons label="View"
+      <ToggleButtons label="Вид"
                      name="view"
                      :buttons="[
                        {
-                         label: 'List',
+                         label: 'Список',
                          icon: 'list-view'
                        },
                        {
-                         label: 'Column',
+                         label: 'Колонки',
                          icon: 'column-view'
                        }
                      ]"

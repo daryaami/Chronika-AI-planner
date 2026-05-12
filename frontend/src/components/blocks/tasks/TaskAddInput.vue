@@ -116,13 +116,13 @@ onMounted(async () => {
         <svg width="16" height="16">
           <use href="#plus"></use>
         </svg>
-        <span>Add task</span>
+        <span>Добавить задачу</span>
       </div>
 
       <input
         type="text"
         class="task-add-input__input"
-        placeholder="What would you like to do?"
+        placeholder="Что вы хотите сделать?"
         v-model="title"
         @focus="activateFocus"
         autocomplete="off"

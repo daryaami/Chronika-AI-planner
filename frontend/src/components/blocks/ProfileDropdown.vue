@@ -48,12 +48,12 @@ onMounted(async () => {
     </div>
     <div class="profile-dropdown__links">
       <NavLink class="profile-dropdown__link"
-               text="My Profile"
+               text="Мой профиль"
                to="/profile"
                right-icon="chevron-right"
       />
       <NavLink class="profile-dropdown__link"
-        text="Log Out"
+        text="Выйти"
         right-icon="log-out"
         type="error"
                @click = "authStore.logOut"

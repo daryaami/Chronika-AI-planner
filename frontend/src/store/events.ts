@@ -19,7 +19,7 @@ export const useEventsStore = defineStore('events', () => {
   const adaptEventToFullCalendar = (event: any): EventInput => {
     return {
       id: event.id,
-      title: event.summary || "No title",
+      title: event.summary || "Добавьте название",
       start: event.start.dateTime,
       end: event.end?.dateTime,
       backgroundColor: event.color,

@@ -10,7 +10,7 @@ const props = defineProps({
   },
 })
 
-const weekDays = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+const weekDays = ['П', 'В', 'С', 'Ч', 'П', 'С', 'В'];
 
 const currentCalendarDate = ref(props.initialDate)
 
@@ -36,7 +36,9 @@ const days = computed(() => {
 })
 
 const currentMonth = computed(() => {
-  return `${currentCalendarDate.value.toLocaleString('en-US', { month: 'long' })} ${currentCalendarDate.value.getFullYear()}`;
+  const month = currentCalendarDate.value.toLocaleString('ru-RU', { month: 'long' });
+  const formattedMonth = month.charAt(0).toUpperCase() + month.slice(1);
+  return `${formattedMonth} ${currentCalendarDate.value.getFullYear()}`;
 })
 
 const nextMonthHandler = () => {

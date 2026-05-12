@@ -5,17 +5,17 @@ import goalIcon from "@/assets/img/goal.svg"
 
 const menuItems = [
   {
-    text: 'My day',
+    text: 'Мой день',
     icon: goalIcon,
     href: '/may-day/',
   },
   {
-    text: 'All my tasks',
+    text: 'Все мои задачи',
     icon: checklistIcon,
     href: '/tasks/',
   },
   {
-    text: 'Calendar',
+    text: 'Календарь',
     icon: calendarIcon,
     href: '/planner/',
   },

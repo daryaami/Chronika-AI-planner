@@ -16,7 +16,7 @@ const dueDate = computed(() => {
 
   const dateString = formatDueDate(date)
 
-  return `Due ${dateString}`
+  return `До ${dateString}`
 })
 
 const tasksStore = useTasksStore()

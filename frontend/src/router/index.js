@@ -15,7 +15,7 @@ const router = createRouter({
       component: () => import("../views/Callback.vue"),
       meta: {
         layout: 'login',
-        metaTitle: 'Log in to Chronika'
+        metaTitle: 'Вход в Chronika'
       },
     },
     {
@@ -23,7 +23,7 @@ const router = createRouter({
       component: () => import("../views/LoginView.vue"),
       meta: {
         layout: 'login',
-        metaTitle: 'Log in to Chronika'
+        metaTitle: 'Вход в Chronika'
       },
     },
     {
@@ -31,7 +31,7 @@ const router = createRouter({
       component: () => import("../views/PlannerView.vue"),
       meta: {
         layout: 'default',
-        metaTitle: 'Planner'
+        metaTitle: 'Календарь'
       },
     },
     {
@@ -39,7 +39,7 @@ const router = createRouter({
       component: () => import("../views/TasksView.vue"),
       meta: {
         layout: 'default',
-        metaTitle: 'Tasks'
+        metaTitle: 'Задачи'
       },
     },
     {
@@ -47,7 +47,7 @@ const router = createRouter({
       component: () => import("@/views/PrivacyPolicy.vue"),
       meta: {
         layout: 'text',
-        metaTitle: 'Privacy Policy'
+        metaTitle: 'Политика конфиденциальности'
       },
     },
     {
@@ -55,7 +55,7 @@ const router = createRouter({
       component: () => import("../views/ProfileView.vue"),
       meta: {
         layout: 'default',
-        metaTitle: 'Profile'
+        metaTitle: 'Профиль'
       },
     },
     {
@@ -63,7 +63,7 @@ const router = createRouter({
       component: () => import("../views/ApiTesterView.vue"),
       meta: {
         layout: 'default',
-        metaTitle: 'API Tester'
+        metaTitle: 'Тестер API'
       },
     },
   ],

@@ -85,7 +85,7 @@ const sendRequest = async () => {
       data
     }
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Unknown error occurred'
+    error.value = err instanceof Error ? err.message : 'Произошла неизвестная ошибка'
   } finally {
     isLoading.value = false
   }
@@ -94,7 +94,7 @@ const sendRequest = async () => {
 
 <template>
   <div class="api-tester">
-    <h1 class="api-tester__title">API Tester</h1>
+    <h1 class="api-tester__title">Тестер API</h1>
 
     <form class="api-tester__form" @submit.prevent="sendRequest">
       <div class="api-tester__row">
@@ -111,7 +111,7 @@ const sendRequest = async () => {
       </div>
 
       <div>
-        <label class="api-tester__label">Request Body (JSON)</label>
+        <label class="api-tester__label">Тело запроса (JSON)</label>
         <textarea
           v-model="requestBody"
           class="api-tester__body"
@@ -120,12 +120,12 @@ const sendRequest = async () => {
       </div>
 
       <button type="submit" class="api-tester__submit" :disabled="isLoading">
-        {{ isLoading ? 'Sending...' : 'Send Request' }}
+        {{ isLoading ? 'Отправка...' : 'Отправить запрос' }}
       </button>
     </form>
 
     <div v-if="error" class="api-tester__error">
-      Error: {{ error }}
+      Ошибка: {{ error }}
     </div>
 
     <div v-if="response" class="api-tester__response">

@@ -17,11 +17,11 @@ defineProps({
 const sortingButtons: Button[] = [
   {
     icon: 'filter',
-    text: 'Filter'
+    text: 'Фильтр'
   },
   {
     icon: 'sort',
-    text: 'Sort'
+    text: 'Сортировка'
   }
 ]
 </script>

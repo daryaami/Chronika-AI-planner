@@ -1,0 +1,123 @@
+{
+  "meta": {
+    "generated_at": "2026-05-07T16:57:24.254322Z",
+    "started_at": "2026-05-07T16:56:45.538633Z",
+    "duration_seconds": 38.714,
+    "user_email": "daryaami10@gmail.com",
+    "scenarios_file": "C:\\Users\\darya_55ie8fq\\Documents\\projects\\Chronika-AI-planner\\chronika\\assistant\\evals\\scenarios_40.json",
+    "scenarios_total": 5,
+    "setup_messages_total": 8,
+    "setup_messages_executed": 0,
+    "setup_messages_failed": 0
+  },
+  "summary": {
+    "overall": {
+      "n": 5,
+      "tsr_percent": 60.0,
+      "intent_accuracy_percent": 60.0,
+      "entity_accuracy_percent": 100.0,
+      "avg_turns_success": 1,
+      "median_latency_s": 4.922,
+      "p95_latency_s": 21.695,
+      "disambiguation_rate_percent": 0.0
+    },
+    "by_category": {
+      "tasks": {
+        "n": 5,
+        "tsr_percent": 60.0,
+        "intent_accuracy_percent": 60.0,
+        "entity_accuracy_percent": 100.0,
+        "avg_turns_success": 1,
+        "median_latency_s": 4.922,
+        "p95_latency_s": 21.695,
+        "disambiguation_rate_percent": 0.0
+      }
+    }
+  },
+  "results": [
+    {
+      "scenario_id": "A01",
+      "category": "tasks",
+      "title": "Создать задачу с дедлайном",
+      "turns": 1,
+      "duration_seconds": 2.925,
+      "success": true,
+      "intent_correct": true,
+      "entity_correct": true,
+      "disambiguation_used": false,
+      "final_state": "success",
+      "tool_names": [
+        "create_task"
+      ],
+      "errors": []
+    },
+    {
+      "scenario_id": "A02",
+      "category": "tasks",
+      "title": "Создать задачу без дедлайна",
+      "turns": 1,
+      "duration_seconds": 3.403,
+      "success": true,
+      "intent_correct": true,
+      "entity_correct": true,
+      "disambiguation_used": false,
+      "final_state": "success",
+      "tool_names": [
+        "create_task"
+      ],
+      "errors": []
+    },
+    {
+      "scenario_id": "A03",
+      "category": "tasks",
+      "title": "Создать задачу с приоритетом",
+      "turns": 1,
+      "duration_seconds": 4.922,
+      "success": true,
+      "intent_correct": true,
+      "entity_correct": true,
+      "disambiguation_used": false,
+      "final_state": "success",
+      "tool_names": [
+        "create_task"
+      ],
+      "errors": []
+    },
+    {
+      "scenario_id": "A04",
+      "category": "tasks",
+      "title": "Переименовать задачу",
+      "turns": 1,
+      "duration_seconds": 21.695,
+      "success": false,
+      "intent_correct": false,
+      "entity_correct": true,
+      "disambiguation_used": false,
+      "final_state": "success",
+      "tool_names": [
+        "search_entities"
+      ],
+      "errors": [
+        "expected_tool_not_found:update_task"
+      ]
+    },
+    {
+      "scenario_id": "A05",
+      "category": "tasks",
+      "title": "Перенести дедлайн",
+      "turns": 1,
+      "duration_seconds": 5.728,
+      "success": false,
+      "intent_correct": false,
+      "entity_correct": true,
+      "disambiguation_used": false,
+      "final_state": "success",
+      "tool_names": [
+        "search_entities"
+      ],
+      "errors": [
+        "expected_tool_not_found:update_task"
+      ]
+    }
+  ]
+}

@@ -24,13 +24,13 @@ const value = computed({
 });
 
 const displayValue = computed(() => {
-  if (!value.value) return "Due";
+  if (!value.value) return "До";
   return toWeekDayAndDate(value.value);
 });
 </script>
 
 <template>
-  <VueDatePicker v-model="value">
+  <VueDatePicker v-model="value" locale="ru-RU">
     <template #trigger>
       <button
         type="button"

@@ -63,7 +63,7 @@ const setTaskEl = (el: Element | ComponentPublicInstance | null, task: UiTask) =
       <svg width="24" height="24" xmlns="http://www.w3.org/2000/svg">
         <use href="#bulb"></use>
       </svg>
-      <h2 class="aside-tasks__title">Plan now</h2>
+      <h2 class="aside-tasks__title">Запланируйте</h2>
       <span class="aside-tasks__counter" v-if="tasksStore.tasks.length">{{ tasksStore.tasks.length? tasksStore.tasks.length: '' }}</span>
     </div>
     <TaskAddInput />

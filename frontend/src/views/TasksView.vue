@@ -7,6 +7,7 @@ import {Task} from "@/types/task";
 import {ref, watch} from "vue";
 import TaskCard from "@/components/blocks/tasks/TaskCard.vue";
 import {useTasksStore} from "@/store/tasks";
+import AssistantWindow from "@/components/blocks/assistant/AssistantWindow.vue";
 
 const activeTask = ref<Task | null>(null)
 const taskStore = useTasksStore()
@@ -28,7 +29,7 @@ watch(
 
 <template>
   <TaskHeader
-    title="All my tasks"
+    title="Мои задачи"
     :icon="checklistIcon"
   />
   <div class="tasks-page">
@@ -43,6 +44,7 @@ watch(
               @close="activeTask = null"
     />
   </div>
+  <AssistantWindow class="tasks-page__assistant-window" />
 </template>
 
 <style scoped lang="scss">
@@ -67,6 +69,13 @@ watch(
 
   &__form {
     margin-bottom: 30px;
+  }
+
+  &__assistant-window {
+    position: fixed;
+    right: 56px;
+    bottom: 56px;
+    z-index: 10;
   }
 }
 </style>

@@ -15,7 +15,7 @@ from .tool_router import ToolRouter
 
 class Orchestrator:
     _READ_ONLY_TOOLS = {"search_entities", "get_calendar", "find_slots"}
-    _FOLLOWUP_ELIGIBLE_TOOLS = {"get_calendar", "find_slots"}
+    _FOLLOWUP_ELIGIBLE_TOOLS = {"search_entities", "get_calendar", "find_slots"}
     _MAX_TOOL_FOLLOWUP_STEPS = 3
     _FSM_RECEIVE_INPUT = "RECEIVE_INPUT"
     _FSM_PLAN_TOOL_CALLS = "PLAN_TOOL_CALLS"
@@ -105,7 +105,11 @@ class Orchestrator:
             )
             results.extend(exec_out["results"])
             created_pending = exec_out["created_pending"] or created_pending
-            if not self._should_attempt_followup(calls=calls, exec_out=exec_out, followup_step=followup_step):
+            if not self._should_attempt_followup(
+                calls=calls,
+                exec_out=exec_out,
+                followup_step=followup_step,
+            ):
                 break
             followup_step += 1
             next_llm = self.llm.chat_with_tools(

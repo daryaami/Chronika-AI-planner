@@ -17,7 +17,7 @@ class PromptTemplate:
 
 _ORCHESTRATOR_FC_PROMPT = PromptTemplate(
     key="orchestrator_fc",
-    version="1.1.11",
+    version="1.1.12",
     content=(
         "Роль: оркестратор действий через function calling для ассистента-планировщика и таск-менеджера (календарные события и задачи).\n"
 
@@ -128,6 +128,13 @@ _ORCHESTRATOR_FC_PROMPT = PromptTemplate(
         "Если target_id нет, сначала используй resolved_entities_context из dialog_context для выбора target и подстановки event_id/task_id.\n"
         "Если resolved_entities_context не дает однозначного target, используй target_query.\n"
         "Только если resolved_entities_context и target_query не позволяют выбрать target, запускай новый search_entities.\n"
+        "ЖЁСТКОЕ ПРАВИЛО ЗАВЕРШЕНИЯ ДЛЯ МУТАЦИЙ: если пользователь просит изменить/перенести/переименовать/удалить, "
+        "нельзя завершать сценарий одним только search_entities.\n"
+        "После search_entities ОБЯЗАТЕЛЬНО должен следовать один из исходов в этом же сценарии:\n"
+        "1) update_task/update_event/move_event/delete_task/delete_event; ИЛИ\n"
+        "2) pending_action (awaiting_confirmation/needs_disambiguation), если для выполнения нужно подтверждение или выбор.\n"
+        "Если target найден однозначно, следующая операция обязательно мутационная; повторный search_entities запрещен.\n"
+        "Никогда не оставляй финальный plan с единственным read-only вызовом для mutation-запроса.\n"
         "Для запроса на перенос события: если время не точное (например «после обеда»), после резолва события вызови find_slots или move_event/update_event с конкретным окном; не завершайся одним search_entities.\n"
         "ЖЁСТКИЙ ДВУХФАЗНЫЙ ПРОТОКОЛ ДЛЯ ПЕРЕНОСА:\n"
         "Фаза 1: search_entities используется только для резолва целевого события.\n"

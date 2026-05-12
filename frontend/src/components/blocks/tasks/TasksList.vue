@@ -106,7 +106,7 @@ watch(() => tasksStore.tasks, async () => {
     <div class="tasks-list-wrapper"
          v-if="todayTasks.length"
     >
-      <span class="tasks-list-wrapper__title">Today</span>
+      <span class="tasks-list-wrapper__title">Сегодня</span>
       <div class="tasks-list">
         <TaskItem v-for="task in todayTasks"
                   :key="task.id"
@@ -119,7 +119,7 @@ watch(() => tasksStore.tasks, async () => {
     <!--  Список nextWeekTasks  -->
     <div class="tasks-list-wrapper"
          v-if="nextWeekTasks.length">
-      <span class="tasks-list-wrapper__title">Next week</span>
+      <span class="tasks-list-wrapper__title">На следующей неделе</span>
       <div class="tasks-list">
         <TaskItem v-for="task in nextWeekTasks"
                   :key="task.id"
@@ -131,7 +131,7 @@ watch(() => tasksStore.tasks, async () => {
 
     <!--  Список laterTasks  -->
     <div class="tasks-list-wrapper" v-if="laterTasks.length">
-      <span class="tasks-list-wrapper__title">Later</span>
+      <span class="tasks-list-wrapper__title">Позже</span>
       <div class="tasks-list">
         <TaskItem v-for="task in laterTasks"
                   :key="task.id"
@@ -142,7 +142,7 @@ watch(() => tasksStore.tasks, async () => {
 
     <div class="tasks-list-wrapper"
          v-if="inboxTasks.length">
-      <span class="tasks-list-wrapper__title">Inbox</span>
+      <span class="tasks-list-wrapper__title">Входящие</span>
       <div class="tasks-list">
         <TaskItem v-for="task in inboxTasks"
                   :key="task.id"
@@ -153,7 +153,7 @@ watch(() => tasksStore.tasks, async () => {
 
     <div class="tasks-list-wrapper"
          v-if="completedTasks.length">
-      <span class="tasks-list-wrapper__title">Completed</span>
+      <span class="tasks-list-wrapper__title">Выполнено</span>
       <div class="tasks-list">
         <TaskItem v-for="task in completedTasks"
                   :key="task.id"

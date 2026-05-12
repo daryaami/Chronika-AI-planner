@@ -1,0 +1,57 @@
+{
+  "setup_messages": [
+    "Создай задачу купить продукты",
+    "Создай задачу подготовить презентацию до пятницы",
+    "Создай задачу написать отчет",
+    "Создай задачу написать отчет по главе 2",
+    "Создай событие встреча с руководителем завтра в 15:00 на 60 минут",
+    "Создай событие консультация с научруком завтра в 11:00 на 60 минут",
+    "Создай событие тренировка в субботу в 18:00 на 60 минут",
+    "Создай событие обед завтра в 13:00 на 60 минут"
+  ],
+  "scenarios": [
+    {"id":"A01","category":"tasks","title":"Создать задачу с дедлайном","message":"Добавь задачу подготовить презентацию до пятницы","expected_tool":"create_task","expected_entity_type":"task","expected_final_state":"success"},
+    {"id":"A02","category":"tasks","title":"Создать задачу без дедлайна","message":"Создай задачу купить продукты","expected_tool":"create_task","expected_entity_type":"task","expected_final_state":"success"},
+    {"id":"A03","category":"tasks","title":"Создать задачу с приоритетом","message":"Добавь важную задачу отправить письмо научруку","expected_tool":"create_task","expected_entity_type":"task","expected_final_state":"success"},
+    {"id":"A04","category":"tasks","title":"Переименовать задачу","message":"Переименуй задачу купить продукты в купить продукты и воду","expected_tool":"update_task","expected_entity_type":"task","expected_final_state":"success"},
+    {"id":"A05","category":"tasks","title":"Перенести дедлайн","message":"Перенеси дедлайн задачи подготовить презентацию на воскресенье","expected_tool":"update_task","expected_entity_type":"task","expected_final_state":"success"},
+    {"id":"A06","category":"tasks","title":"Изменить длительность задачи","message":"Поставь длительность задачи подготовить презентацию 90 минут","expected_tool":"update_task","expected_entity_type":"task","expected_final_state":"success"},
+    {"id":"A07","category":"tasks","title":"Завершить задачу","message":"Отметь задачу подготовить презентацию как выполненную","expected_tool":"complete_task","expected_entity_type":"task","expected_final_state":"success"},
+    {"id":"A08","category":"tasks","title":"Вернуть в невыполненные","message":"Сними выполнение с задачи подготовить презентацию","expected_tool":"uncomplete_task","expected_entity_type":"task","expected_final_state":"success"},
+    {"id":"A09","category":"tasks","title":"Добавить заметку","message":"Добавь к задаче подготовить презентацию заметку проверить иллюстрации","expected_tool":"update_task","expected_entity_type":"task","expected_final_state":"success"},
+    {"id":"A10","category":"tasks","title":"Удалить задачу","message":"Удали задачу купить продукты","expected_tool":"delete_task","expected_final_state":"waiting_confirmation","auto_confirm":true},
+
+    {"id":"B11","category":"events","title":"Создать событие","message":"Создай событие консультация с научруком завтра в 11:00 на 60 минут","expected_tool":"create_event","expected_entity_type":"event","expected_final_state":"success"},
+    {"id":"B12","category":"events","title":"Создать событие с временем","message":"Запланируй событие тренировка в субботу с 18:00 до 19:00","expected_tool":"create_event","expected_entity_type":"event","expected_final_state":"success"},
+    {"id":"B13","category":"events","title":"Создать событие утром","message":"Добавь событие созвон с командой завтра утром на 30 минут","expected_tool":"create_event","expected_entity_type":"event","expected_final_state":"success"},
+    {"id":"B14","category":"events","title":"Перенести событие","message":"Перенеси событие консультация с научруком на понедельник в 10:00","expected_tool":"update_event","expected_entity_type":"event","expected_final_state":"success"},
+    {"id":"B15","category":"events","title":"Изменить время события","message":"Сдвинь событие тренировка на час позже","expected_tool":"update_event","expected_entity_type":"event","expected_final_state":"success"},
+    {"id":"B16","category":"events","title":"Переименовать событие","message":"Переименуй событие тренировка в кардио тренировка","expected_tool":"update_event","expected_entity_type":"event","expected_final_state":"success"},
+    {"id":"B17","category":"events","title":"Удалить событие","message":"Удали событие кардио тренировка","expected_tool":"delete_event","expected_final_state":"waiting_confirmation","auto_confirm":true},
+    {"id":"B18","category":"events","title":"Создать в выбранном календаре","message":"Создай событие рабочий синк завтра в 16:00","expected_tool":"create_event","expected_entity_type":"event","expected_final_state":"success"},
+    {"id":"B19","category":"events","title":"Найти событие на неделе","message":"Покажи мои события на этой неделе","expected_tool":"search_entities","expected_final_state":"success"},
+    {"id":"B20","category":"events","title":"Найти ближайшие события","message":"Найди ближайшие события по учебе","expected_tool":"search_entities","expected_final_state":"success"},
+
+    {"id":"C21","category":"search","title":"Поиск задачи по неполному названию","message":"Найди задачу про презентацию","expected_tool":"search_entities","expected_final_state":"success"},
+    {"id":"C22","category":"search","title":"Поиск события по теме","message":"Найди события про консультацию","expected_tool":"search_entities","expected_final_state":"success"},
+    {"id":"C23","category":"search","title":"Амбигуити задач","message":"Перенеси задачу про отчет на завтра","expected_tool":"update_task","expected_final_state":"needs_disambiguation","auto_actions":[{"type":"cancel","payload":{}}]},
+    {"id":"C24","category":"search","title":"Амбигуити событий","message":"Удали встречу с руководителем","expected_tool":"delete_event","expected_final_state":"needs_disambiguation","auto_actions":[{"type":"cancel","payload":{}}]},
+    {"id":"C25","category":"search","title":"Несуществующая сущность","message":"Удали задачу которой точно не существует 987654","expected_tool":"delete_task","expected_final_state":"failed"},
+    {"id":"C26","category":"search","title":"Учебные задачи недели","message":"Покажи мои учебные задачи на этой неделе","expected_tool":"search_entities","expected_final_state":"success"},
+    {"id":"C27","category":"search","title":"Завтрашние проектные дела","message":"Что у меня по проекту завтра","expected_tool":"search_entities","expected_final_state":"success"},
+    {"id":"C28","category":"search","title":"Нестрогая ссылка на задачу","message":"Перенеси задачу про аптеку на завтра","expected_tool":"update_task","expected_final_state":"success"},
+    {"id":"C29","category":"search","title":"Нестрогая ссылка на событие","message":"Перенеси встречу с руководителем на 15:00","expected_tool":"update_event","expected_final_state":"success"},
+    {"id":"C30","category":"search","title":"Уточнение после выбора","message":"Найди задачу про отчет и измени дедлайн на пятницу","expected_tool":"update_task","expected_final_state":"success"},
+
+    {"id":"D31","category":"slots","title":"Свободные слоты сегодня","message":"Подбери 3 свободных слота на сегодня по 30 минут","expected_tool":"find_slots","expected_final_state":"needs_disambiguation","auto_actions":[{"type":"cancel","payload":{}}]},
+    {"id":"D32","category":"slots","title":"Слоты на завтра 60 минут","message":"Подбери слоты на завтра на 60 минут","expected_tool":"find_slots","expected_final_state":"needs_disambiguation","auto_actions":[{"type":"cancel","payload":{}}]},
+    {"id":"D33","category":"slots","title":"Окно 14-18","message":"Найди свободное окно с 14 до 18 на завтра","expected_tool":"find_slots","expected_final_state":"needs_disambiguation","auto_actions":[{"type":"cancel","payload":{}}]},
+    {"id":"D34","category":"slots","title":"Учет занятости","message":"Предложи свободный слот для встречи на завтра, учитывая мой календарь","expected_tool":"find_slots","expected_final_state":"needs_disambiguation","auto_actions":[{"type":"cancel","payload":{}}]},
+    {"id":"D35","category":"slots","title":"Слот для задачи","message":"Найди слот для задачи подготовить презентацию на 90 минут","expected_tool":"find_slots","expected_final_state":"needs_disambiguation","auto_actions":[{"type":"cancel","payload":{}}]},
+    {"id":"D36","category":"slots","title":"Нет доступных слотов","message":"Найди сегодня двухчасовой слот после 23:00","expected_tool":"find_slots","expected_final_state":"failed"},
+    {"id":"D37","category":"slots","title":"Подтверждение слота","message":"Поставь встречу с дизайнером завтра в первый свободный слот на 60 минут","expected_tool":"find_slots","expected_final_state":"waiting_confirmation","auto_confirm":true},
+    {"id":"D38","category":"slots","title":"Повторный подбор после отказа","message":"Подбери слот на завтра для тренировки на 60 минут","expected_tool":"find_slots","expected_final_state":"needs_disambiguation","auto_actions":[{"type":"cancel","payload":{}}]},
+    {"id":"D39","category":"slots","title":"Preference-aware подбор","message":"Подбери лучшее время для учебной задачи на этой неделе","expected_tool":"find_slots","expected_final_state":"needs_disambiguation","auto_actions":[{"type":"cancel","payload":{}}]},
+    {"id":"D40","category":"slots","title":"Неоднозначная формулировка времени","message":"Поставь встречу после обеда но не слишком поздно","expected_tool":"find_slots","expected_final_state":"needs_disambiguation","auto_actions":[{"type":"cancel","payload":{}}]}
+  ]
+}

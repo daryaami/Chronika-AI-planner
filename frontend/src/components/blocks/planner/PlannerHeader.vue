@@ -11,7 +11,9 @@ const props = defineProps(['currentDate'])
 const currentMonth = computed(() => {
   if (props.currentDate) {
     const now = props.currentDate;
-    return `${now.toLocaleString('EN-US', { month: 'long' })} ${now.getFullYear()}`;
+    const month = now.toLocaleString('ru-RU', { month: 'long' });
+    const formattedMonth = month.charAt(0).toUpperCase() + month.slice(1);
+    return `${formattedMonth} ${now.getFullYear()}`;
   } else {
     return ''
   }
@@ -22,7 +24,7 @@ const currentMonth = computed(() => {
 <template>
   <div class="planner-header">
     <div class="planner-header__left-col">
-      <RoundTextBtn text="Today"
+      <RoundTextBtn text="Сегодня"
                     @click="emit('today')"
       />
       <div class="planner-header__chevrons">
@@ -42,7 +44,7 @@ const currentMonth = computed(() => {
 
     <div class="planner-header__right-col">
       <RoundTextBtn
-        text="Week"
+        text="Неделя"
         icon="chevron-down"
       />
 

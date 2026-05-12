@@ -133,13 +133,13 @@ const deleteAccount = async () => {
 <template>
   <div>
      <div class="profile-header">
-    <h1 class="profile-header__title">My profile</h1>
+    <h1 class="profile-header__title">Мой аккаунт</h1>
   </div>
 
   <div class="profile-back">
     <IconText class="profile-back__icon"
               leftIcon="chevron-left"
-              text="Back"
+              text="Назад"
               weight="bold"
               size="l"
               variant="accent"
@@ -159,25 +159,25 @@ const deleteAccount = async () => {
       <div class="profile-page__name-wrapper">
         <EditableName v-model="name" />
         <span class="profile-page__joined"
-              v-if="displayedJoinOn">Joined on {{ displayedJoinOn }}</span>
+              v-if="displayedJoinOn">С нами с {{ displayedJoinOn }}</span>
       </div>
 
       <div class="profile-page__fields">
         <div class="profile-field"
           v-if="profileData.email"
         >
-          <span class="profile-field__label">Email</span>
+          <span class="profile-field__label">Почта</span>
           <span class="profile-field__value">{{ profileData.email }}</span>
         </div>
 
         <div class="profile-field" v-if="calendars.length">
           <div class="profile-field__label-wrapper">
-            <span class="profile-field__label">Connected Calendars ({{ displayedCalendarsCount }})</span>
+            <span class="profile-field__label">Подключенные календари ({{ displayedCalendarsCount }})</span>
             <IconText tag="button"
                       variant="accent"
                       size="m"
                       weight="reg"
-                      text="Edit"
+                      text="Изменить"
                       @click="isCalendarPopupOpened = true"
             />
           </div>
@@ -200,29 +200,29 @@ const deleteAccount = async () => {
 
       <div class="profile-page__fields">
         <div class="profile-field">
-          <span class="profile-field__label">Delete Chronika Account</span>
-          <span class="profile-field__value">This action will remove all your data. It is irreversible. </span>
+          <span class="profile-field__label">Удаление аккаунта Chronika</span>
+          <span class="profile-field__value">Это действие удалит все ваши данные. Его нельзя отменить. </span>
           <IconText class="profile-page__delete"
                     tag="button"
                     variant="error"
                     size="m"
-                    text="Delete Account"
+                    text="Удалить аккаунт"
                     @click="isDeletePopupOpened = true"
           />
 
           <DialogPopup v-model="isDeletePopupOpened"
-                       title="Delete account"
+                       title="Удаление аккаунта"
                        :is-confirm-disabled="!isSureDeleteAccount || !isSureDeleteData"
                        @confirm="deleteAccount"
           >
             <div class="delete-popup">
-              <p class="delete-popup__text">Deleting account will remove all your data!</p>
+              <p class="delete-popup__text">Удаление аккаунта приведет к удалению всех ваших данных!</p>
               <div class="delete-popup__checkboxes">
                 <CheckboxText v-model="isSureDeleteAccount"
-                              text="I am sure I want to delete my account."
+                              text="Я уверен(а), что хочу удалить свой аккаунт."
                 />
                 <CheckboxText v-model="isSureDeleteData"
-                              text="I am aware that deleting account will remove all my data." />
+                              text="Я понимаю, что удаление аккаунта удалит все мои данные." />
               </div>
             </div>
           </DialogPopup>

@@ -116,7 +116,7 @@ const categoriesOptions = computed(() => {
   return [
     {
       value: null,
-      label: 'Not selected'
+      label: 'Не выбрано'
     },
     ...options
   ]
@@ -183,11 +183,11 @@ const userCategoryIdModel = computed({
           <svg width="18" height="18">
             <use href="#alarm-2"></use>
           </svg>
-          <span class="scheduled__title">Scheduled</span>
+          <span class="scheduled__title">Запланировано</span>
         </div>
 
         <p class="scheduled__no-events"
-           v-if="!taskCopy.events.length">No upcoming events</p>
+           v-if="!taskCopy.events.length">Нет предстоящих событий</p>
 
         <div class="scheduled__time-logs" v-else>
           <TimeLogCard v-for="timeLog in taskCopy.events" :key="timeLog.id" :time-log="timeLog" />
