@@ -376,14 +376,14 @@ export const useEventsStore = defineStore('events', () => {
         event.user_calendar_id = data.user_calendar_id
 
         events.value.push(adaptEventToFullCalendar(event))
-        toastStore.addToast('Event created successfully! ✅', 3000)
+        toastStore.addToast('Событие создано ✅', 3000)
         return event
       } else {
-        toastStore.addToast('Failed to create event 😞', 4000)
+        toastStore.addToast('Не удалось создать событие 😞', 4000)
       }
     } catch (error) {
       toastStore.removeToast(loadingToastId)
-      toastStore.addToast('Failed to create event 😞', 4000)
+      toastStore.addToast('Не удалось создать событие 😞', 4000)
       console.error('Create event error:', error)
     }
   }
@@ -434,14 +434,14 @@ export const useEventsStore = defineStore('events', () => {
           })
         }
 
-        toastStore.addToast('Event updated successfully! ✅', 3000)
+        toastStore.addToast('Событие обновлено ✅', 3000)
         return responseData
       }
 
-      toastStore.addToast('Failed to update event 😞', 4000)
+      toastStore.addToast('Не удалось обновить событие 😞', 4000)
     } catch (error) {
       toastStore.removeToast(loadingToastId)
-      toastStore.addToast('Failed to update event 😞', 4000)
+      toastStore.addToast('Не удалось обновить событие 😞', 4000)
       console.error('Update event error:', error)
     }
   }

@@ -25,7 +25,7 @@ export const useCalendarsStore = () => {
     if (response.ok) {
       calendars.value = await response.json()
     } else {
-      toastStore.addToast('Failed to load calendars 😞', 3000)
+      toastStore.addToast('Не удалось загрузить календари 😞', 3000)
     }
   }
 

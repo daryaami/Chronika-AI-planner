@@ -35,8 +35,9 @@
     </ul>
 
     <h3>Calendar-Related Data</h3>
-    <p>With your explicit consent, the App accesses Google Calendar using the `calendar.events` scope in&nbsp;order to:</p>
+    <p>With your explicit consent, the App accesses Google Calendar using the `calendar.readonly` and `calendar.events` scopes in&nbsp;order to:</p>
     <ul>
+      <li>list your calendars and read calendar metadata (for example time zone and display names);</li>
       <li>create calendar events;</li>
       <li>update calendar events;</li>
       <li>delete calendar events.</li>

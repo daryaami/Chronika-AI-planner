@@ -37,7 +37,12 @@ const displayValue = computed(() => {
 </script>
 
 <template>
-  <VueDatePicker v-model="value">
+  <VueDatePicker
+      v-model="value" locale="ru-RU"
+      :enable-time-picker="props.enableTimePicker"
+      :position="props.position"
+      :teleport="props.teleport"
+  >
     <template #trigger>
       <button
         type="button"

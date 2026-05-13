@@ -163,7 +163,7 @@ class ToolRouter:
         entity_type = str(payload.get("entity_type") or "all").strip().lower()
         filters = payload.get("filters") if isinstance(payload.get("filters"), dict) else {}
         limit = 10
-        similarity_threshold = 0.65
+        similarity_threshold = 0.5
         items: list[dict[str, Any]] = []
         seen: set[tuple[str, Any]] = set()
 

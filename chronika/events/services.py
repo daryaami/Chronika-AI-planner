@@ -684,26 +684,28 @@ class EventWriteService:
             )
 
 
-def add_event_extended_properties(event: dict, task_id: int | None = None):
+def add_event_extended_properties(
+    event: dict, task_id: int | None = None, *, vkr_seed: bool = False
+):
     """
     Добавляет расширенные свойства событию.
-    "chronika__object-type": 1 - задача, 0 - событие 
+    "chronika__object-type": 1 - задача, 0 - событие
+    chronika__vkr-seed: 1 - тестовое событие из seed_vkr_test_entities (для purge / проверок)
     """
     if task_id:
-        event['extendedProperties'] = {
-            'private': {
-                "chronika__touched": True,
-                "chronika__object-type": 1,
-                "chronika__task-id": task_id,
-            }
-    }
-    else:
-        event['extendedProperties'] = {
-            'private': {
-                "chronika__touched": True,
-                "chronika__object-type": 0,
-            }
+        priv = {
+            "chronika__touched": True,
+            "chronika__object-type": 1,
+            "chronika__task-id": task_id,
         }
+    else:
+        priv = {
+            "chronika__touched": True,
+            "chronika__object-type": 0,
+        }
+    if vkr_seed:
+        priv["chronika__vkr-seed"] = "1"
+    event["extendedProperties"] = {"private": priv}
 
     return event
 

@@ -21,9 +21,15 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     email = models.EmailField(unique=True)
     google_id = models.CharField(max_length=50, unique=True, blank=True, null=True)  # Google ID
     name = models.CharField(max_length=255)
-    picture = models.URLField(blank=True, null=True)
+    picture = models.URLField(max_length=2048, blank=True, null=True)
     joined_on = models.DateField(default=date.today)
     time_zone = models.CharField(max_length=50, blank=True, null=True)
+    locale = models.CharField(
+        max_length=35,
+        blank=True,
+        null=True,
+        help_text="BCP 47 tag from Google account (e.g. ru, en-US)",
+    )
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
 

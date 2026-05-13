@@ -3,7 +3,7 @@ import jwt
 import requests
 import logging
 from random import SystemRandom
-from attrs import define
+from attrs import define, fields
 from typing import Any, Dict
 from urllib.parse import urlencode
 from django.conf import settings
@@ -30,6 +30,8 @@ class UserInfo:
     given_name: str | None = None
     family_name: str | None = None
     picture: str | None = None
+    # BCP 47 language tag from Google userinfo (e.g. ru, en-US)
+    locale: str | None = None
 
 @define
 class GoogleRawLoginCredentials:
@@ -61,6 +63,8 @@ class GoogleRawLoginFlowService:
         "openid",
         "https://www.googleapis.com/auth/userinfo.email",
         "https://www.googleapis.com/auth/userinfo.profile",
+        # calendar.events — CRUD событий; без calendar.readonly нельзя вызывать calendarList (список календарей)
+        "https://www.googleapis.com/auth/calendar.readonly",
         "https://www.googleapis.com/auth/calendar.events",
     ]
 
@@ -145,8 +149,10 @@ class GoogleRawLoginFlowService:
         if not response.ok:
             raise GoogleNetworkError("Failed to obtain user info from Google.")
         
-        logger.debug("User info: %s", response.json())
-        user_info = UserInfo(**response.json())
+        raw = response.json()
+        logger.debug("User info: %s", raw)
+        allowed = {f.name for f in fields(UserInfo)}
+        user_info = UserInfo(**{k: v for k, v in raw.items() if k in allowed})
 
         return user_info
         

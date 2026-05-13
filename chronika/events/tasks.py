@@ -72,7 +72,8 @@ def sync_event_to_google(event_id: int) -> bool:
         body["start"] = {"dateTime": event.start.isoformat()}
     if event.end:
         body["end"] = {"dateTime": event.end.isoformat()}
-    add_event_extended_properties(body, event.task_id)
+    vkr_seed = "[vkr_seed]" in (event.description or "")
+    add_event_extended_properties(body, event.task_id, vkr_seed=vkr_seed)
 
     try:
         if event.google_event_id:

@@ -24,8 +24,16 @@ class AuthService:
     def get_or_create_user(self):
         user, created = User.objects.get_or_create(
             google_id=self.user_info.sub,
-            defaults={"email": self.user_info.email, "name": self.user_info.name, "picture": self.user_info.picture}
+            defaults={
+                "email": self.user_info.email,
+                "name": self.user_info.name,
+                "picture": self.user_info.picture,
+                "locale": self.user_info.locale,
+            },
         )
+        if self.user_info.locale is not None and user.locale != self.user_info.locale:
+            user.locale = self.user_info.locale
+            user.save(update_fields=["locale"])
         if created:
             logger.info("New user created with Google ID: %s", self.user_info.sub)
         else:
