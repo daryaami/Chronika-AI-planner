@@ -73,8 +73,8 @@ watch(
 
   &__assistant-window {
     position: fixed;
-    right: 56px;
-    bottom: 56px;
+    right: 32px;
+    bottom: 32px;
     z-index: 10;
   }
 }

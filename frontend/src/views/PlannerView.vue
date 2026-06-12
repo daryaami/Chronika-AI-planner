@@ -14,8 +14,10 @@ import {useEventsStore} from "@/store/events";
 import {getEndOfMonth, getStartOfMonth} from "@/components/js/time-utils";
 import AsideTasksList from "@/components/blocks/tasks/AsideTasksList.vue";
 import EventCreatePopup from "@/components/blocks/planner/event/EventCreatePopup.vue";
+import TaskEditPopup from "@/components/blocks/planner/task/TaskEditPopup.vue";
 import AssistantWindow from "@/components/blocks/assistant/AssistantWindow.vue";
 import { useRoute, useRouter } from "vue-router";
+import { Task } from "@/types/task";
 
 const isLoading = ref<boolean>(true);
 
@@ -30,6 +32,11 @@ const currentDate = ref<Date | null>(null)
 const lastAppliedRouteDate = ref<string | null>(null)
 
 const createPopupRef = ref<InstanceType<typeof EventCreatePopup> | null>(null)
+const taskEditPopupRef = ref<InstanceType<typeof TaskEditPopup> | null>(null)
+
+const openTaskEditPopup = (task: Task) => {
+  taskEditPopupRef.value?.open(task);
+}
 
 const updateEventTimeFromCalendar = (info: EventDragStopArg) => {
   const id = info.event.id
@@ -248,9 +255,10 @@ watch(
       <div class="planner__calendar-wrapper">
         <FullCalendar :options="calendarOptions" ref="calendarInstance"/>
         <EventCreatePopup ref="createPopupRef" />
+        <TaskEditPopup ref="taskEditPopupRef" />
       </div>
   </div>
-  <AsideTasksList />
+  <AsideTasksList @task-click="openTaskEditPopup" />
   <AssistantWindow class="planner__assistant-window" />
 
 </div>

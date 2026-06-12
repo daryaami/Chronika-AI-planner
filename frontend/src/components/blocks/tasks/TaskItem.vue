@@ -9,6 +9,10 @@ import {Category} from "@/types/category";
 
 const props = defineProps<{ task: Task }>()
 
+const emit = defineEmits<{
+  (e: 'click'): void;
+}>()
+
 const dueDate = computed(() => {
   if (!props.task.due_date) return
   const date = new Date(props.task.due_date)
@@ -50,7 +54,7 @@ const categoryName = computed(() => {
 </script>
 
 <template>
-  <div class="task-item">
+  <div class="task-item" @click="emit('click')">
     <TaskCheckbox class="task-item__checkbox"
                   :priority="task.priority.toLowerCase()"
                   v-model="isCompleted"
@@ -96,6 +100,10 @@ const categoryName = computed(() => {
         bottom: 40%;
         left: 0;
       }
+    }
+
+    & .task-item__due {
+      color: var(--icon-disabled)!important;
     }
   }
 

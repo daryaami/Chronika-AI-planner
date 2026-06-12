@@ -72,7 +72,7 @@ const updateProfileData = () => {
 
   if (!hasChanges) return
 
-  profileStore.setUpdatedProfileData(payload)
+  profileStore.setUpdatedProfileData(payload).then()
 }
 
 watch([name, timeZone], () => {

@@ -12,6 +12,10 @@ const tasksStore = useTasksStore()
 const tasks = ref<UiTask[]>([])
 const draggableEls: Draggable[] = []
 
+const emit = defineEmits<{
+  (e: 'task-click', task: Task): void;
+}>()
+
 type TaskGroup = {
   key: "today" | "tomorrow" | "week" | "later" | "other";
   title: string;
@@ -70,13 +74,15 @@ const groupedTasks = computed<TaskGroup[]>(() => {
   const withoutDate = sortedTasks.value.filter((task) => !task.due_date);
 
   if (!withDate.length) {
-    return [
-      {
-        key: "other",
-        title: "Без срока",
-        tasks: withoutDate,
-      },
-    ];
+    return withoutDate.length
+      ? [
+          {
+            key: "other",
+            title: "Без срока",
+            tasks: withoutDate,
+          },
+        ]
+      : [];
   }
 
   const now = new Date();
@@ -179,7 +185,7 @@ const setTaskEl = (el: Element | ComponentPublicInstance | null, task: UiTask) =
             :ref="el => setTaskEl(el, task)"
             :data-task-id="task.id"
         >
-          <TaskItem :task="task" />
+          <TaskItem :task="task" @click="emit('task-click', task)" />
         </div>
       </section>
     </TransitionGroup>

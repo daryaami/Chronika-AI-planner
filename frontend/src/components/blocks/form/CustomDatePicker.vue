@@ -8,10 +8,11 @@ const props = withDefaults(defineProps<{
   enableTimePicker?: boolean;
   /** Выравнивание меню относительно триггера: left — смещает меню правее относительно center */
   position?: "left" | "center" | "right";
-  /** true — телепорт в body (удобно при overflow у предков) */
-  teleport?: boolean | string;
+  /** Селектор элемента для телепорта (по умолчанию body) */
+  teleportTo?: string;
 }>(), {
   enableTimePicker: true,
+  teleportTo: 'body',
 });
 
 const emit = defineEmits<{
@@ -41,7 +42,7 @@ const displayValue = computed(() => {
       v-model="value" locale="ru-RU"
       :enable-time-picker="props.enableTimePicker"
       :position="props.position"
-      :teleport="props.teleport"
+      :teleport="props.teleportTo"
   >
     <template #trigger>
       <button

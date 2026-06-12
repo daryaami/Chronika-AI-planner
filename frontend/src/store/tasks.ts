@@ -103,6 +103,9 @@ export const useTasksStore = defineStore('tasks', () => {
   }
 
   const updateTask = async (task: Task) => {
+    // Исключаем el из payload (содержит циклические ссылки)
+    const { el, ...payload } = task;
+
     await fetch(`${BASE_API_URL}/tasks/${task.id}/`, {
       method: 'PUT',
       credentials: 'include',
@@ -110,7 +113,7 @@ export const useTasksStore = defineStore('tasks', () => {
         'Authorization': `JWT ${authStore.getAccessToken()}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(task)
+      body: JSON.stringify(payload)
     })
 
     await fetchTasks()

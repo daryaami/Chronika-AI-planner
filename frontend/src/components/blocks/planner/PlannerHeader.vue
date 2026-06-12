@@ -43,10 +43,10 @@ const currentMonth = computed(() => {
     </div>
 
     <div class="planner-header__right-col">
-      <RoundTextBtn
+      <!-- <RoundTextBtn
         text="Неделя"
         icon="chevron-down"
-      />
+      /> -->
 
       <ProfileDropdown />
     </div>

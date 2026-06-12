@@ -27,6 +27,8 @@ defineProps<Props>()
 
 .task-checkbox {
   display: block;
+  flex-shrink: 0;
+
   width: 15px;
   height: 15px;
   border-radius: 50%;
